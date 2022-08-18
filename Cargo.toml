@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "xtask",
+    "src/kernel",
+    "src/arch/x86_64",
+]

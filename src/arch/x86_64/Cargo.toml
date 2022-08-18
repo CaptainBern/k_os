@@ -1,0 +1,19 @@
+[package]
+name = "x86_64"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kernel"
+path = "src/main.rs"
+
+[dependencies]
+log = "0.4"
+x86 = "0.47"
+multiboot2 = "0.13"
+
+[dependencies.kernel]
+path = "../../kernel"
+
+[profile.dev]
+panic = "abort"
