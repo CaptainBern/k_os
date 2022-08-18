@@ -1,4 +1,4 @@
-use std::{fmt::Display, fmt, str::FromStr};
+use std::{str::FromStr};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Arch {

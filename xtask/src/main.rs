@@ -4,7 +4,7 @@ mod build;
 mod run;
 
 use std::path::{PathBuf, Path};
-use xshell::{cmd, Shell};
+use xshell::{Shell};
 
 fn main() -> anyhow::Result<()> {
     let sh = &Shell::new()?;

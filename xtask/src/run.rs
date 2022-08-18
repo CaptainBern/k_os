@@ -1,5 +1,3 @@
-use std::{ffi::OsStr, path::{PathBuf, Path}};
-
 use xshell::{Shell, cmd};
 
 use crate::{flags, project_root};
