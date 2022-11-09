@@ -1,22 +1,13 @@
-# x86
 
-Code:
-    - check multiboot shit
-    - enable whatever we need to enable
-    - transition to long mode
-    - relocate self
-    - jump into kernel main
+# TODO
 
+- heap alloc
+- SMP
 
-Initial offset 0x00:
-    - to system setup
-    - jump to rust
-    - move code to different offset, randomize shit, etc etc
-    - update registers.
+## Design
 
-Boot:
-    - initial GDT
-    - initial pages
+- server that handles pagefaults
+- server that bootstraps rest of shit
 
-## Pages
-
+kernel -> Page handler
+       -> Bootstrap

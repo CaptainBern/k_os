@@ -7,6 +7,6 @@ pub extern fn rust_eh_personality() {
 
 #[lang = "panic_impl"]
 #[no_mangle]
-pub extern fn rust_begin_panic(_info: &PanicInfo) -> ! {
+pub extern fn rust_begin_panic(panic_info: &PanicInfo) -> ! {
     loop {}
 }
