@@ -2,7 +2,7 @@ use core::mem;
 
 use x86::{dtables::DescriptorTablePointer, irq, segmentation::cs, Ring};
 
-use crate::{println, traps};
+use crate::{interrupts::traps, println};
 
 /// The early interrupt descriptor table. This table only serves to get us
 /// through the early setup code. Afterwards, the boot cpu will switch to its
