@@ -119,7 +119,7 @@ macro_rules! __interrupt_handler_emit_asm {
                 iretq
             ",
             paranoid = const($paranoid),
-            error = const ($paranoid),
+            error = const ($error),
             inner = sym $inner,
             options(noreturn, att_syntax)
         );
