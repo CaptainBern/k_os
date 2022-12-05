@@ -1,4 +1,4 @@
-use crate::{interrupt_handler, interrupts::handler::Frame, println};
+use crate::{interrupt_handler, interrupts::handler::Frame, paranoid_interrupt_handler, println};
 
 interrupt_handler! {
     pub fn divide_by_zero(frame: &mut Frame) {
@@ -6,15 +6,13 @@ interrupt_handler! {
     }
 }
 
-interrupt_handler! {
-    #[paranoid]
+paranoid_interrupt_handler! {
     pub fn debug(frame: &mut Frame) {
         println!("Debug: {:?}", frame);
     }
 }
 
-interrupt_handler! {
-    #[paranoid]
+paranoid_interrupt_handler! {
     pub fn nmi(frame: &mut Frame) {
         println!("NMI: {:?}", frame);
     }
@@ -51,55 +49,54 @@ interrupt_handler! {
 }
 
 interrupt_handler! {
-    pub fn double_fault(frame: &mut Frame, error: usize) {
+    pub fn double_fault(frame: &mut Frame, error: u64) {
         println!("Double fault: {:?}, error: {:#04x}", frame, error);
     }
 }
 
 interrupt_handler! {
-    pub fn invalid_tss(frame: &mut Frame, error: usize) {
+    pub fn invalid_tss(frame: &mut Frame, error: u64) {
         println!("Invalid TSS: {:?}, error: {:#04x}", frame, error);
     }
 }
 
 interrupt_handler! {
-    pub fn segment_not_present(frame: &mut Frame, error: usize) {
+    pub fn segment_not_present(frame: &mut Frame, error: u64) {
         println!("Segment not present: {:?}, {:#04x}", frame, error);
     }
 }
 
 interrupt_handler! {
-    pub fn stack(frame: &mut Frame, error: usize) {
+    pub fn stack(frame: &mut Frame, error: u64) {
         println!("Stack: {:?}, error: {:#04x}", frame, error);
     }
 }
 
 interrupt_handler! {
-    pub fn general_protection(frame: &mut Frame, error: usize) {
+    pub fn general_protection(frame: &mut Frame, error: u64) {
         println!("General protection: {:?}, error: {:#04x}", frame, error);
     }
 }
 
 interrupt_handler! {
-    pub fn page_fault(frame: &mut Frame, error: usize) {
+    pub fn page_fault(frame: &mut Frame, error: u64) {
         println!("Page fault: {:?}, error: {:#04x}", frame, error);
     }
 }
 
 interrupt_handler! {
-    pub fn x87_floating_point_ex_pending(frame: &mut Frame) {
+    pub fn x87_floating_point_ex(frame: &mut Frame) {
         println!("x87 floating point exception pending: {:?}", frame);
     }
 }
 
 interrupt_handler! {
-    pub fn alignment_check(frame: &mut Frame, error: usize) {
+    pub fn alignment_check(frame: &mut Frame, error: u64) {
         println!("Alignment check: {:?}, error: {:#04x}", frame, error);
     }
 }
 
-interrupt_handler! {
-    #[paranoid]
+paranoid_interrupt_handler! {
     pub fn machine_check(frame: &mut Frame) {
         println!("Machine check: {:?}", frame);
     }
@@ -112,7 +109,7 @@ interrupt_handler! {
 }
 
 interrupt_handler! {
-    pub fn control_protection(frame: &mut Frame, error: usize) {
+    pub fn control_protection(frame: &mut Frame, error: u64) {
         println!("Control protection: {:?}, error: {:#04x}", frame, error);
     }
 }
@@ -123,15 +120,13 @@ interrupt_handler! {
     }
 }
 
-interrupt_handler! {
-    #[paranoid]
+paranoid_interrupt_handler! {
     pub fn vmm_communication(frame: &mut Frame) {
         println!("VMM communication: {:?}", frame);
     }
 }
 
-interrupt_handler! {
-    #[paranoid]
+paranoid_interrupt_handler! {
     pub fn security(frame: &mut Frame) {
         println!("Security: {:?}", frame);
     }
