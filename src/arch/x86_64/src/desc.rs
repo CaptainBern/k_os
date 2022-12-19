@@ -1,14 +1,21 @@
+//! x86_64 still uses segment descriptors. The interpretation of the descriptor
+//! fields is changed and in some cases the descriptor itself is expanded. This
+//! implementation is meant for dealing with 'longmode' descriptors
+//! specifically. For more information refer to:
+//!  - AMD64 Architecture Programmer's Manual Vol. 2 Chapters 4 and 8.
+//!  - Intel Software Developer's Manual Vol. 3 Chapters 5, 6, and 7.
+
 use bitflags::bitflags;
 use x86::segmentation::SegmentSelector;
 
 bitflags! {
-    /// Descriptor access byte.
+    /// Descriptor access byte. The access byte as documented in the manuals is an
+    /// actual full 8-bit byte, since it also contains the descriptor type. In this
+    /// implementation we're treating the type as a seperate value. (See
+    /// [UserDescriptorType], [SystemDescriptorType] and [GateDescriptorType])
     pub struct Access: u8 {
-        /// The descriptor type is embedded in the access byte.
-        const TYPE_MASK = 0xf << 4;
-
         /// When set, the descriptor refers to a user segment.
-        const S = 1 << 3;
+        const S = 1 << 0;
 
         /// Ring 0 privilege level for the segment the descriptor refers to.
         const DPL_0 = 0 * (1 << 1);
@@ -23,25 +30,31 @@ bitflags! {
         const DPL_3 = 3 * (1 << 1);
 
         /// Mark the segment referenced by this descriptor available.
-        const P = 1 << 0;
+        const P = 1 << 3;
+
+        /// Access bits for a kernel user-segment descriptor.
+        const KERNEL_USR = Access::S.bits | Access::DPL_0.bits | Access::P.bits;
+
+        /// Access bits for a kernel system-segment descritptor.
+        const KERNEL_SYS = Access::DPL_0.bits | Access::P.bits;
     }
 
     /// Possible flags for user- and system-descriptor. For system-descriptors,
     /// only G and AVL can be used, the other flags are expected to be zero.
     pub struct DescriptorFlags: u8 {
         /// Available to software.
-        const AVL = 1 << 3;
+        const AVL = 1 << 0;
 
         /// Only valid for code segment descriptors. When set, it specifies the processor
         /// is running in 64-bit mode. `DB` should be zero if this bit is set.
-        const L = 1 << 2;
+        const L = 1 << 1;
 
         /// Unused in longmode for data segment descriptors. Should be zero for code segment
         /// descriptors (if L=1) and system segment descriptors.
-        const DB = 1 << 1;
+        const DB = 1 << 2;
 
         /// Ignored in longmode for both code- and data segment descriptors.
-        const G = 1 << 0;
+        const G = 1 << 3;
     }
 
     /// Type bits for a data segment descriptor.
@@ -166,46 +179,47 @@ macro_rules! generic_descriptor {
                 access: Access,
                 flags: DescriptorFlags,
             ) -> $descriptor {
-                let bits = (((limit as $bits) & 0xffff) << (<$bits>::BITS - 16)
-                    | ((base as $bits) & 0xffff) << (<$bits>::BITS - 32)
-                    | ((base as $bits) & 0xff0000) << (<$bits>::BITS - 56)
-                    | ((typ.bits() as $bits) & 0xf) << (<$bits>::BITS - 44))
-                    | ((access.bits() as $bits) & 0xf) << (<$bits>::BITS - 38)
-                    | ((((limit as $bits) & 0xf0000) >> 16) << (<$bits>::BITS - 52))
-                    | ((flags.bits() as $bits) & 0xf) << (<$bits>::BITS - 56)
-                    | ((((base as $bits) & 0xff000000) >> 24) << (<$bits>::BITS - 64))
-                    | if <$base>::BITS == 64 {
-                        (base as $bits) & 0xffffffff00000000
+                let bits = if <$base>::BITS == 64 {
+                        ((base as $bits) & 0xffffffff00000000) << 32
                     } else {
                         0
-                    };
+                    }
+                    | ((base as $bits) & 0xff000000) << 24
+                    | ((flags.bits() as $bits) & 0xf) << 52
+                    | ((limit as $bits) & 0xf0000) << 32
+                    | ((access.bits() as $bits) & 0xf) << 44
+                    | ((typ.bits() as $bits) & 0xf) << 40
+                    | ((base as $bits) & 0xffffff) << 16
+                    | (limit as $bits) & 0xffff;
                 $descriptor { bits: bits }
             }
 
             #[inline]
             pub fn set_limit(&mut self, limit: u32) {
-                self.bits &= !(0xffff00000000f000 << (<$bits>::BITS - 64));
-                self.bits |= (((limit as $bits) & 0xffff) << (<$bits>::BITS - 16))
-                    | (((limit as $bits) & 0xf0000) << (<$bits>::BITS - 60));
+                self.bits &= !(0xf00000000ffff);
+                self.bits |= ((limit as $bits) & 0xf0000) << 32 | (limit as $bits) & 0xffff;
             }
 
             #[inline]
             pub fn set_base(&mut self, base: $base) {
-                self.bits &= !((0xffffff0000ff) << (<$bits>::BITS - 64));
-                if <$base>::BITS == 64 {
-                    self.bits &= !(0xffffffff00000000);
-                    self.bits |= ((base as $bits) & 0xffffffff00000000);
-                }
-
-                self.bits |= ((((base as $bits) & 0xffff) << (<$bits>::BITS - 32))
-                    | ((base as $bits) & 0xff0000) << (<$bits>::BITS - 56)
-                    | (((base as $bits) & 0xff000000) >> 24) << (<$bits>::BITS - 64));
+                self.bits &=!(
+                    if <$base>::BITS == 64 {
+                        0xffffffff00000000 << 32
+                    } else {
+                        0
+                    } | 0xff0000ffffff0000
+                );
+                self.bits |= if <$base>::BITS == 64 {
+                        ((base as $bits) & 0xffffffff00000000) << 32
+                    } else {
+                        0
+                    } | ((base as $bits) & 0xff000000) << 24 | ((base as $bits) & 0xffffff) << 16;
             }
 
             #[inline]
             pub fn set_flags(&mut self, flags: DescriptorFlags) {
-                self.bits &= !(0xf << (<$bits>::BITS - 56));
-                self.bits |= (((flags.bits as $bits) & 0xf) << (<$bits>::BITS - 56));
+                self.bits &= !(0xf0000000000000);
+                self.bits |= ((flags.bits() as $bits) & 0xf) << 52;
             }
         }
     };
@@ -216,14 +230,14 @@ macro_rules! impl_descriptor_common {
         impl $descriptor {
             #[inline]
             pub fn set_type(&mut self, typ: $typ) {
-                self.bits &= !(0xf << (<$bits>::BITS - 44));
-                self.bits |= (((typ.bits() as $bits) & 0xf) << (<$bits>::BITS - 44));
+                self.bits &= !(0xf0000000000);
+                self.bits |= ((typ.bits() as $bits) & 0xf) << 40;
             }
 
             #[inline]
             pub fn set_access(&mut self, access: Access) {
-                self.bits &= !(0xf << (<$bits>::BITS - 48));
-                self.bits |= (((access.bits as $bits) & 0xf) << (<$bits>::BITS - 48));
+                self.bits &= !(0xf00000000000);
+                self.bits |= ((access.bits() as $bits) & 0xf) << 44;
             }
         }
     };
@@ -237,6 +251,10 @@ generic_descriptor!(
     u32
 );
 impl_descriptor_common!(UserDescriptor, UserDescriptorType, u64);
+
+impl UserDescriptor {
+    pub const NULL: UserDescriptor = UserDescriptor { bits: 0 };
+}
 
 generic_descriptor!(
     #[doc = "A 16-byte system-segment descriptor."]
@@ -263,34 +281,31 @@ impl GateDescriptor {
         access: Access,
         ist: u8,
     ) -> GateDescriptor {
-        let bits = ((offset as u128) & 0xffff) << 112
-            | (selector.bits() as u128) << 96
-            | ((ist as u128) & 0b111) << 93
-            | (typ as u128) << 84
-            | (access.bits as u128) << 80
-            | ((offset as u128) & 0xffff0000) << 48
-            | (offset as u128) & 0xffffffff00000000;
+        let bits = ((offset as u128) & 0xffffffffffff0000) << 16
+            | ((access.bits() as u128) & 0xf) << 44
+            | ((typ.bits() as u128) & 0xf) << 40
+            | ((ist as u128) & 0b111) << 32
+            | ((selector.bits() as u128) & 0xffff) << 16
+            | (offset as u128) & 0xffff;
         GateDescriptor { bits }
     }
 
     #[inline]
     pub fn set_offset(&mut self, offset: u64) {
-        self.bits &= !(0xffff00000000ffffffffffff00000000);
-        self.bits |= ((offset as u128) & 0xffff) << 112
-            | ((offset as u128) & 0xffff0000) << 48
-            | (offset as u128) & 0xffffffff00000000;
+        self.bits &= !(0xffffffffffff00000000ffff);
+        self.bits |= ((offset as u128) & 0xffffffffffff0000) << 16 | (offset as u128) & 0xffff;
     }
 
     #[inline]
     pub fn set_selector(&mut self, selector: SegmentSelector) {
-        self.bits &= !(0xffff << 96);
-        self.bits |= (selector.bits() as u128) << 96;
+        self.bits &= !(0xffff0000);
+        self.bits |= ((selector.bits() as u128) & 0xffff) << 16
     }
 
     #[inline]
     pub fn set_ist(&mut self, ist: u8) {
-        self.bits &= !(0b111 << 93);
-        self.bits |= ((ist as u128) & 0b111) << 93;
+        self.bits &= !(0b111 << 32);
+        self.bits |= ((ist as u128) & 0b111) << 32;
     }
 }
 
