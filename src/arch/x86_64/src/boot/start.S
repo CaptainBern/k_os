@@ -1,7 +1,10 @@
+/* This symbol is known by the linker script. */
+.global KERNEL_ENTRY
+KERNEL_ENTRY = _start
+
 .section ".phys.text", "ax", @progbits
 .align 8
 .code32
-.global _start
 _start:
     cli
     cld
@@ -22,7 +25,7 @@ _start:
     leal    boot_stack_top, %esp
 
     /* Save multiboot info. */
-    pushl   0
+    pushl   $0
     pushl   %ebx
 
     /* Reset EFLAGS. */
@@ -125,11 +128,8 @@ _start:
     andl    $~(1 << 31), %eax
     movl    %eax, %cr0
 
-    /* 
-     * Load the early GDT. It's located at a 32bit linear address, so we don't
-     * have to reload it once we're in longmode.
-     */
-    lgdt    gdt
+    /* Load the early GDT. */
+    lgdt    BOOT_GDT_PTR
 
     /* Enable PAE and PGE. */
     movl    %cr4, %eax
@@ -147,7 +147,7 @@ _start:
     wrmsr
 
     /* Prepare to jump into long mode. */
-    pushl   $KERNEL_CS
+    pushl   $8
     movl    $low_entry, %eax
     pushl   %eax
 
@@ -173,71 +173,33 @@ low_entry:
 .text
 .extern     boot
 high_entry:
-    /* Reset the segments. */
+    /*
+     * At this point we're running in a virtual address. All code here must be
+     * pure PIC.
+     */
+
+    /* Clear segment registers. */
     xorl    %eax, %eax
     movl    %eax, %ds
     movl    %eax, %ss
     movl    %eax, %es
-
-    /* Reset gs and fs. */
     movl    %eax, %gs
     movl    %eax, %fs
 
-    /*
-     * Update the kernel stack pointer.
-     */
-    movq    $KERNEL_OFFSET, %rax
-    addq    %rax, %rsp
-    addq    %rax, %rbp
-
-    /* Pop off the multiboot 2 info. */
+    /* Retrieve multiboot info from the boot stack. */
     pop     %rdi
 
-    /* Load kernel stack. */
-    leaq    KERNEL_STACK + 0x4000, %rsp
+    /* Load kernel stack. It is defined in `main.rs`. */
+    leaq    KERNEL_STACK+0x4000(%rip), %rsp
 
     /* Jump into Rust. */
-    jmp     boot
+    call    boot
 
     /* boot is not supposed to return, but if it does, just hang on. */
 1:
     hlt
     jmp     1b
 
-
-.section ".phys.data", "a", @progbits
-/*
- * Early GDT, enough to get us into longmode.
- *
- * See sections 3.4 and 5.2 in Intel manual 3A.
- */
-.balign 8
-gdt:
-    /* null entry */
-    .short  gdt_end - gdt - 1
-    .long   gdt
-    .short  0
-
-    /* 64-bit code descriptor */
-__KERNEL_CS:
-    .short  0xffff      /* limit 15:0 */
-    .short  0           /* base 31:16 */
-    .byte   0           /* 23:16 */
-    .byte   0b10011010  /* P(1) DPL(00) S(1) 1 C(0) R(1) A(0) */
-    .byte   0b00101111  /* G(0) D(0) L(1) AVL(0) seg limit 19:16 */
-    .byte   0           /* base 31:24 */
-
-    /* data descriptor */
-    .short  0xffff      /* limit 15:0 */
-    .short  0           /* base 31:16 */
-    .byte   0           /* 23:16 */
-    .byte   0b10010010  /* P(1) DPL(00) S(1) 0 E(0) W(1) A(0) */
-    .byte   0b11001111  /* G(1) B(1) 0 AVL(0) seg limit 19:16 */
-    .byte   0           /* base 31:24 */
-gdt_end:
-
-/* The index of the kernel code segment. */
-KERNEL_CS = __KERNEL_CS - gdt
 
 /*
  * Initial boot stack.

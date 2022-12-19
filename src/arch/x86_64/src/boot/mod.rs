@@ -1,51 +1,61 @@
-use x86::bits64::paging::{PML4, PML4Entry, PDPT, PDPTEntry, PD, PDEntry};
+use multiboot2::load;
+use x86::int;
 
-use crate::include_asm;
+use crate::{include_asm, interrupts, pic, println};
 
-include_asm!(
-    "src/boot/header.S",
-    "src/boot/start.S"
-);
+pub mod early;
+pub mod serial_console;
 
-/// The level 4 page table, initialised in `head.S`. It contains two entries,
-/// each pointing to [BOOT_PDPT]. The first entry is responsible for identity
-/// mapping the first 4G of memory. The second entry, the last in the table,
-/// maps the -2G virtual address space to the first 2G of the physical address
-/// space.
-#[no_mangle]
-#[link_section = ".phys.bss"]
-static BOOT_PML4: PML4 = [PML4Entry(0); 512];
-
-/// The level 3 page table, initialised in `head.S`. It contains six entries.
-/// The first four entries point to each of the level 2 page directories in
-/// [BOOT_PDS] respectively. The last and second-to-last entries point to the
-/// first two page directories in [BOOT_PDS].
-#[no_mangle]
-#[link_section = ".phys.bss"]
-static BOOT_PDPT: PDPT = [PDPTEntry(0); 512];
-
-/// The level 2 page directories, initialised in `head.S`. Each of the four
-/// directories maps 1G of memory using 2M pages. The full 32bit address
-/// space is mapped using these.
-#[no_mangle]
-#[link_section = ".phys.bss"]
-static BOOT_PDS: [PD; 4] = [
-    [PDEntry(0); 512],
-    [PDEntry(0); 512],
-    [PDEntry(0); 512],
-    [PDEntry(0); 512]
-];
+include_asm!("src/boot/header.S", "src/boot/start.S");
 
 /// Continue the boot process.
-/// 
+///
 /// At this point we're running in the higher half, but the pages are still
 /// located in lower-level memory.
 #[no_mangle]
-extern "C" fn boot(mb_info: usize) {
-    // The full 32bit address space is identity mapped, which simplifies the
-    // parsing of the ACPI tables. After we're done parsing them, we can move
-    // on and setup proper kernel pages.
+extern "C" fn boot(multiboot_info_ptr: usize) -> ! {
+    serial_console::init();
+    // TODO: setup some form of error handling/messaging
+    // TODO: IDT
+    // TODO: GDT
+    // TODO: CPUID value cache shit
+    // TODO: per-cpu shit
 
+    // TODO: Init thread_local_storage
+
+    // disable PIC
+    unsafe {
+        pic::remap(0x20, 0x28);
+        pic::disable();
+    }
+
+    // Initialise the early interrupt handlers asap.
+    unsafe {
+        println!("Initialising interrupts");
+        interrupts::init_early_idt();
+    }
+
+    println!("Triggering breakpoint");
+    unsafe {
+        // int!(3);
+    }
+    println!("Resumed from breakpoint");
+
+    // Try parsing the multiboot information structure, it should be identity
+    // mapped.
+    let multiboot_info = unsafe { load(multiboot_info_ptr).unwrap() };
+
+    println!("{:?}", multiboot_info);
+
+    // PLAN:
+    // - fix paging
+    //  * allocate per-cpu storage
+    //  * fix-up permissions
+    //  * TODO: figure out alignment + kernel memory map
+    // - GS/FS BASE
+    //  * store current cpu ID in %gs
+    //  * store current TLS ptr in %fs
+    // - GDT/IDT per CPU
 
     loop {}
 }
