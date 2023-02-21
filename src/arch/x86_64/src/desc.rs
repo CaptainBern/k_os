@@ -13,6 +13,7 @@ bitflags! {
     /// actual full 8-bit byte, since it also contains the descriptor type. In this
     /// implementation we're treating the type as a seperate value. (See
     /// [UserDescriptorType], [SystemDescriptorType] and [GateDescriptorType])
+    #[repr(transparent)]
     pub struct Access: u8 {
         /// When set, the descriptor refers to a user segment.
         const S = 1 << 0;
@@ -41,6 +42,7 @@ bitflags! {
 
     /// Possible flags for user- and system-descriptor. For system-descriptors,
     /// only G and AVL can be used, the other flags are expected to be zero.
+    #[repr(transparent)]
     pub struct DescriptorFlags: u8 {
         /// Available to software.
         const AVL = 1 << 0;
@@ -58,6 +60,7 @@ bitflags! {
     }
 
     /// Type bits for a data segment descriptor.
+    #[repr(transparent)]
     pub struct DataSegmentBits: u8 {
         /// Set by the processor when the descriptor is copied from the GDT or LDT into
         /// one of the data-segment registers or the stack-segment register.
@@ -79,6 +82,7 @@ bitflags! {
     }
 
     /// Type bits for a code segment descriptor.
+    #[repr(transparent)]
     pub struct CodeSegmentBits: u8 {
         /// Set by the processor when the descriptor is copied from the GDT or LDT into
         /// the `cs` register.
@@ -178,7 +182,7 @@ macro_rules! generic_descriptor {
                 typ: $descriptor_type,
                 access: Access,
                 flags: DescriptorFlags,
-            ) -> $descriptor {
+            ) -> Self {
                 let bits = if <$base>::BITS == 64 {
                         ((base as $bits) & 0xffffffff00000000) << 32
                     } else {
@@ -273,6 +277,8 @@ pub struct GateDescriptor {
 }
 
 impl GateDescriptor {
+    pub const NULL: GateDescriptor = GateDescriptor { bits: 0 };
+
     #[inline]
     pub const fn new(
         offset: u64,
@@ -280,8 +286,8 @@ impl GateDescriptor {
         typ: GateDescriptorType,
         access: Access,
         ist: u8,
-    ) -> GateDescriptor {
-        let bits = ((offset as u128) & 0xffffffffffff0000) << 16
+    ) -> Self {
+        let bits = ((offset as u128) & 0xffffffffffff0000) << 32
             | ((access.bits() as u128) & 0xf) << 44
             | ((typ.bits() as u128) & 0xf) << 40
             | ((ist as u128) & 0b111) << 32
@@ -293,7 +299,7 @@ impl GateDescriptor {
     #[inline]
     pub fn set_offset(&mut self, offset: u64) {
         self.bits &= !(0xffffffffffff00000000ffff);
-        self.bits |= ((offset as u128) & 0xffffffffffff0000) << 16 | (offset as u128) & 0xffff;
+        self.bits |= ((offset as u128) & 0xffffffffffff0000) << 32 | (offset as u128) & 0xffff;
     }
 
     #[inline]
