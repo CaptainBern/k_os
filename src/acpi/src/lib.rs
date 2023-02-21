@@ -1,15 +1,22 @@
+//! Small ACPI implementation for Rust.
+//!
+//! This crate provides the bare minimum to be able to work with ACPI in Rust.
+//! The implementation is based on ACPI v6.4, as described [here](https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/index.html).
+//!
+//! To keep the code as simple as possible, the caller is responsible for
+//! making sure all the ACPI structures are reachable at their specified
+//! address (there is no runtime 'remapping'). This essentially means it
+//! assumes the ACPI memory region is identity mapped.
+
 #![no_std]
 
-use core::{mem, ptr, result, slice};
+use core::{mem, result};
 
+pub mod address;
 pub mod madt;
-pub mod structs;
+pub mod sdt;
 
 pub type Result<T> = result::Result<T, AcpiError>;
-
-pub trait AcpiTable {
-    const SIGNATURE: [u8; 4];
-}
 
 #[derive(Debug)]
 pub enum AcpiError {
@@ -18,31 +25,114 @@ pub enum AcpiError {
     ChecksumFailed,
 }
 
-/// Structure to keep track of ACPI tables.
+/// An ACPI table type.
+pub trait AcpiTable {
+    const SIGNATURE: [u8; 4];
+}
+
+/// Root System Description Table.
+///
+/// The array of entries are physical pointers to various other system description
+/// tables.
+/// See ACPI v6.4 section 5.2.7
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+pub struct Rsdt {
+    pub header: sdt::SdtHeader,
+}
+
+impl AcpiTable for Rsdt {
+    const SIGNATURE: [u8; 4] = *b"RSDT";
+}
+
+/// Extended System Description Table.
+///
+/// Functionaly identical to [Rsdt], but instead using 64-bit pointers.
+/// See ACPI v6.4 section 5.2.8
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+pub struct Xsdt {
+    pub header: sdt::SdtHeader,
+}
+
+impl AcpiTable for Xsdt {
+    const SIGNATURE: [u8; 4] = *b"XSDT";
+}
+
+/// Enum wrapper for ACPI tables.
 #[derive(Debug)]
 pub enum AcpiTables<'a> {
-    Root(&'a structs::Rsdt),
-    Extended(&'a structs::Xsdt),
+    Root(&'a Rsdt),
+    Extended(&'a Xsdt),
 }
 
 impl<'a> AcpiTables<'a> {
+    /// Initialise the ACPI tables for a given RSDT address.
+    ///
+    /// # Safety
+    /// The given address should point to a valid RSDT. The header is validated
+    /// (which means its signature and checksum are checked) before it is
+    /// accepted. However, a given address that points to a _valid_ RSDT
+    /// containing bogus data can still cause unexpected behaviour.
     pub unsafe fn from_rsdt(addr: usize) -> Result<Self> {
-        Ok(AcpiTables::Root(
-            (addr as *const structs::Rsdt).as_ref().unwrap(),
-        ))
+        let rsdt = (addr as *const Rsdt).as_ref().unwrap();
+
+        // Validate the header.
+        rsdt.header.validate()?;
+
+        // Check if the signature is correct.
+        if rsdt.header.signature != Rsdt::SIGNATURE {
+            Err(AcpiError::InvalidSignature)?
+        }
+
+        Ok(AcpiTables::Root(rsdt))
     }
 
-    pub unsafe fn from_xsdt() -> Result<Self> {
-        todo!()
+    /// Initialise the ACPI tables for a given XSDT address.
+    ///
+    /// # Safety
+    /// The given address should point to a valid XSDT. The header is validated
+    /// (which means its signature and checksum are checked) before it is
+    /// accepted. However, a given address that points to a _valid_ XSDT
+    /// containing bogus data can still cause unexpected behaviour.
+    pub unsafe fn from_xsdt(addr: usize) -> Result<Self> {
+        let xsdt = (addr as *const Xsdt).as_ref().unwrap();
+
+        // Validate the header.
+        xsdt.header.validate()?;
+
+        // Check if the signature is correct.
+        if xsdt.header.signature != Xsdt::SIGNATURE {
+            Err(AcpiError::InvalidSignature)?
+        }
+
+        Ok(AcpiTables::Extended(xsdt))
     }
 
-    /// TODO: validation
-    pub fn validate(&self) {}
+    /// Compute the number of entries in the underlying table.
+    #[inline]
+    pub fn len(&self) -> usize {
+        match self {
+            AcpiTables::Root(rsdt) => {
+                (rsdt.header.length as usize)
+                    .checked_sub(mem::size_of::<sdt::SdtHeader>())
+                    .unwrap_or(0)
+                    / 4
+            }
+            AcpiTables::Extended(xsdt) => {
+                (xsdt.header.length as usize)
+                    .checked_sub(mem::size_of::<sdt::SdtHeader>())
+                    .unwrap_or(0)
+                    / 8
+            }
+        }
+    }
 
-    /// Iterate over the tables.
+    /// Return an iterator over the entries in the table.
     pub fn iter(&self) -> Entries {
         Entries {
             tables: self,
+            len: self.len(),
             cur: 0,
         }
     }
@@ -50,91 +140,61 @@ impl<'a> AcpiTables<'a> {
 
 #[derive(Debug)]
 pub enum TableKind<'a> {
-    Fadt(&'a structs::Fadt),
-    Facs(&'a structs::Facs),
-    Madt(&'a structs::Madt),
-    Unknown(&'a structs::SdtHeader),
+    Madt(&'a madt::Madt),
+    Unknown(&'a sdt::SdtHeader),
+}
+
+impl<'a> TableKind<'a> {
+    #[inline]
+    pub fn header(&self) -> &'a sdt::SdtHeader {
+        match self {
+            TableKind::Madt(madt) => &madt.header,
+            TableKind::Unknown(header) => &header,
+        }
+    }
 }
 
 /// An iterator over RSDT/XSDT header entries.
 pub struct Entries<'a> {
-    /// Reference to the tables we're using.
     tables: &'a AcpiTables<'a>,
-
-    /// Which entry are we currently parsing?
+    len: usize,
     cur: isize,
-}
-
-impl<'a> Entries<'a> {
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self.tables {
-            AcpiTables::Root(rsdt) => {
-                (rsdt.header.length as usize - mem::size_of::<structs::SdtHeader>()) / 4
-            }
-            AcpiTables::Extended(xsdt) => {
-                (xsdt.header.length as usize - mem::size_of::<structs::SdtHeader>()) / 8
-            }
-        }
-    }
 }
 
 impl<'a> Iterator for Entries<'a> {
     type Item = TableKind<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.cur as usize >= self.len() {
+        if self.cur as usize >= self.len {
             None
         } else {
             let header = match self.tables {
                 AcpiTables::Root(ref rsdt) => unsafe {
-                    let ptr = ptr::addr_of!(rsdt.entries)
-                        .offset(self.cur)
-                        .read_unaligned();
-                    let raw = ptr[0] as *const structs::SdtHeader;
-                    raw.as_ref().unwrap()
+                    let ptr = (*rsdt as *const _ as *const u8)
+                        .offset(mem::size_of::<Rsdt>() as isize)
+                        .offset(self.cur * 4);
+                    let address = (ptr as *const u32).read_unaligned();
+                    (address as *const sdt::SdtHeader).as_ref().unwrap()
                 },
                 AcpiTables::Extended(ref xsdt) => unsafe {
-                    let ptr = ptr::addr_of!(xsdt.entries)
-                        .offset(self.cur)
-                        .read_unaligned();
-                    let raw = ptr[0] as *const structs::SdtHeader;
-                    raw.as_ref().unwrap()
+                    let ptr = (*xsdt as *const _ as *const u8)
+                        .offset(mem::size_of::<Xsdt>() as isize)
+                        .offset(self.cur * 8);
+                    let address = (ptr as *const u64).read_unaligned();
+                    (address as *const sdt::SdtHeader).as_ref().unwrap()
                 },
             };
-
-            // todo: validate the header
 
             self.cur += 1;
 
             unsafe {
                 match header.signature {
-                    structs::Facs::SIGNATURE => Some(TableKind::Facs(
-                        (&header as *const _ as *const structs::Facs)
-                            .as_ref()
-                            .unwrap(),
-                    )),
-                    structs::Fadt::SIGNATURE => Some(TableKind::Fadt(
-                        (&header as *const _ as *const structs::Fadt)
-                            .as_ref()
-                            .unwrap(),
-                    )),
-                    structs::Madt::SIGNATURE => Some(TableKind::Madt(
-                        (&header as *const _ as *const structs::Madt)
-                            .as_ref()
-                            .unwrap(),
+                    madt::Madt::SIGNATURE => Some(TableKind::Madt(
+                        (header as *const _ as *const madt::Madt).as_ref().unwrap(),
                     )),
                     _ => Some(TableKind::Unknown(&header)),
                 }
             }
         }
     }
-}
-
-/// Calculate the checksum of a given object.
-fn calc_checksum<T>(object: &T) -> u8 {
-    let bytes =
-        unsafe { slice::from_raw_parts((object as *const T) as *const u8, mem::size_of::<T>()) };
-
-    bytes.iter().sum::<u8>()
 }
