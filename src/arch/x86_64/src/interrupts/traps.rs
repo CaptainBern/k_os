@@ -1,3 +1,5 @@
+use x86::controlregs::cr2;
+
 use crate::{interrupt_handler, interrupts::handler::Frame, paranoid_interrupt_handler, println};
 
 interrupt_handler! {
@@ -80,7 +82,10 @@ interrupt_handler! {
 
 interrupt_handler! {
     pub fn page_fault(frame: &mut Frame, error: u64) {
-        println!("Page fault: {:?}, error: {:#04x}", frame, error);
+        let addr = unsafe {
+            cr2()
+        };
+        println!("Page fault: {:?}, error: {:#04x}, addr: {:#018x}", frame, error, addr);
     }
 }
 
