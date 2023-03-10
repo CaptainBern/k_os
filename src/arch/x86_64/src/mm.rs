@@ -60,7 +60,7 @@ pub struct Region {
 /// The map handles the upper 512G of virtual memory. All other kernel addresses (meaning
 /// address of which the most significant bit is '1') are avilable to the [AddressSpaces](AddressSpace).
 /// It also manages the physical memory owned by the kernel. All other physical memory is
-/// managed by the userspace 'paging' server. It is that server's responsability to make
+/// managed by the userspace 'paging' server. It is that server's responsibility to make
 /// sure the [AddressSpaces](AddressSpace) don't clash (by mapping two different processes
 /// to the same physical frame for example).
 #[derive(Debug)]
