@@ -1,9 +1,68 @@
 use bitflags::bitflags;
 
+pub const KILOBYTE: u64 = 1024;
+pub const MEGABYTE: u64 = 1024 * KILOBYTE;
+pub const GIGABYTE: u64 = 1024 * MEGABYTE;
+
+/// The size of a base page (4 kilobytes).
+pub const BASE_PAGE: u64 = 4 * KILOBYTE;
+
+/// The size of a large base (technically a 4-megabyte 'huge' page, but we have
+/// to differentiate them somehow).
+pub const LARGE_PAGE: u64 = 2 * MEGABYTE;
+
+/// The size of a huge page, 1-gigabytes.
+pub const HUGE_PAGE: u64 = 1 * GIGABYTE;
+
+pub const PML4_BIT_SHIFT: u64 = 39;
+pub const PDPT_BIT_SHIFT: u64 = 30;
+pub const PD_BIT_SHIFT: u64 = 21;
+pub const PT_BIT_SHIFT: u64 = 12;
+
 /// The maximum number of bits in a physical address.
 pub const MAXPHYADDRESS: u64 = 52;
 
-const ADDRESS_MASK: u64 = !((1 << MAXPHYADDRESS) - 1) & !0xfff;
+/// Maximum number of bits in a virtual address. (This is for 4-level paging)
+pub const MAX_VADDR_BITS: u64 = 48;
+
+/// Mask used to test if an address is in canonical form.
+pub const CANONICAL_ADDRESS_MASK: u64 = !((1 << MAX_VADDR_BITS as u64 - 1) - 1);
+
+/// Mask used to check if an address is page aligned.
+pub const PAGE_ALIGN_MASK: u64 = (1 << PT_BIT_SHIFT) - 1;
+
+/// Mask for table addresses.
+pub const ADDRESS_MASK: u64 = ((1 << MAXPHYADDRESS) - 1) & !0xfff;
+
+/// Return true if the given address is canonical.
+#[inline]
+pub const fn is_canonical(addr: u64) -> bool {
+    (addr & CANONICAL_ADDRESS_MASK == CANONICAL_ADDRESS_MASK) | (addr & CANONICAL_ADDRESS_MASK == 0)
+}
+
+/// Compute the PML4 index of the given address.
+#[inline]
+pub const fn pml4_index(virt: u64) -> usize {
+    ((virt >> PML4_BIT_SHIFT) & 0b111111111) as usize
+}
+
+/// Compute the PDPT index of the given address.
+#[inline]
+pub const fn pdpt_index(virt: u64) -> usize {
+    ((virt >> PDPT_BIT_SHIFT) & 0b111111111) as usize
+}
+
+/// Compute the PD index of the given address.
+#[inline]
+pub const fn pd_index(virt: u64) -> usize {
+    ((virt >> PD_BIT_SHIFT) & 0b111111111) as usize
+}
+
+/// Compute the frame number of the given address.
+#[inline]
+pub const fn pt_index(virt: u64) -> usize {
+    ((virt >> PT_BIT_SHIFT) & 0b111111111) as usize
+}
 
 /// A PML4 table.
 pub type PML4 = [PML4E; 512];
@@ -55,7 +114,7 @@ bitflags! {
 }
 
 /// PML4 Entry.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct PML4E {
     pub bits: u64,
@@ -150,7 +209,7 @@ bitflags! {
 }
 
 /// Page Directory Pointer Table Entry.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct PDPTE {
     pub bits: u64,
@@ -182,7 +241,7 @@ impl PDPTE {
     #[inline]
     pub fn set_address(&mut self, pd: u64) {
         self.bits &= !ADDRESS_MASK;
-        self.bits &= pd & ADDRESS_MASK;
+        self.bits |= pd & ADDRESS_MASK;
     }
 
     #[inline]
@@ -247,7 +306,7 @@ bitflags! {
 }
 
 /// Page Directory Entry.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct PDE {
     pub bits: u64,
@@ -365,7 +424,7 @@ bitflags! {
 }
 
 /// Page Table Entry.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct PTE {
     pub bits: u64,
