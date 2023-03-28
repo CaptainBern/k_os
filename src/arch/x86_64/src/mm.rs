@@ -28,10 +28,10 @@ use x86::controlregs::cr3_write;
 use crate::{
     linker,
     paging::{
-        self, pd_index, pdpt_index, pt_index, PDEFlags, PDPTEFlags, PML4EFlags, PTEFlags, PD, PDE,
-        PDPT, PDPTE, PML4, PML4E, PT, PTE,
+        self, pd_index, pdpt_index, pml4_index, pt_index, PDEFlags, PDPTEFlags, PML4EFlags,
+        PTEFlags, PD, PDE, PDPT, PDPTE, PML4, PML4E, PT, PTE,
     },
-    BootInfo,
+    println, BootInfo,
 };
 
 static mut KERNEL_MAP: KernelMap = KernelMap::empty();
@@ -55,7 +55,7 @@ impl Region {
 
     /// Return true if `x` and `y` have any overlap.
     #[inline]
-    pub fn have_overlap(x: &Region, y: &Region) -> bool {
+    pub fn are_overlapping(x: &Region, y: &Region) -> bool {
         (x.base <= y.end()) && (x.end() >= y.base)
     }
 
@@ -64,7 +64,7 @@ impl Region {
     /// Returns [None] if the regions are not overlapping or are not of the same [RegionKind].
     #[inline]
     pub fn merge(x: &Region, y: &Region) -> Option<Region> {
-        if Region::have_overlap(x, y) {
+        if Region::are_overlapping(x, y) {
             let base = cmp::min(x.base, y.base);
             let length = cmp::max(x.end(), y.end()) - base;
             Some(Region { base, length })
@@ -139,43 +139,37 @@ pub struct AddressSpace {
     /// The top of the address space for the owning CPU.
     top: PML4,
 
-    /// The level 3 local table used.
-    local_lvl_3: PDPT,
-    local_lvl_2: PD,
+    self_lvl_3: PDPT,
+
+    self_lvl_2: PD,
+
+    self_lvl_1: [PT; 256],
+
+    /// Reference to self, used to find the physical location of self.
+    /// It is relative to [linker::ASPACE_WINDOW_START].
+    this: &'static AddressSpace,
 
     apic_id: i16,
 }
 
 impl AddressSpace {
-    /// Create an empty address space.
-    #[inline]
-    pub const fn empty() -> Self {
-        AddressSpace {
-            top: [PML4E::NULL; 512],
-            local_lvl_3: [PDPTE::NULL; 512],
-            local_lvl_2: [PDE::NULL; 512],
-            apic_id: -1,
-        }
-    }
-
-    pub fn init(&mut self, kernel_map: &KernelMap) {
-        self.top[511] = PML4E::new(
-            virt_to_phys(kernel_map.kernel_lvl_3().as_ptr() as _),
-            PML4EFlags::P,
-        );
-    }
-
-    /// Flush the adress space.
-    pub unsafe fn flush(&self) {
-        let phys_top = virt_to_phys(self.top.as_ptr() as u64);
-
-        // Make sure 'top' is properly aligned.
+    pub fn init(&mut self, kernel_map: &KernelMap, frame: u64) {
+        // Just a sanity check to make sure we are effectively pointed at
+        // the given frame.
         assert!(
-            is_aligned::<{ paging::BASE_PAGE }>(phys_top),
-            "AddressSpace top not properly aligned!"
+            kernel_map
+                .virt_to_phys(self.top.as_ptr() as u64)
+                .unwrap_or_default()
+                == frame
         );
 
-        cr3_write(phys_top);
+        // TODO: do this in allocate_aspaces, or should we do it as we bring up each core?
+    }
+
+    /// Flush the address space.
+    pub unsafe fn flush(&self) {
+        // TODO: calculate physical address of self.top
+        // we can use kernelmap for this.
     }
 }
 
@@ -211,38 +205,38 @@ pub struct KernelMap {
     /// Level-2 address space tables.
     ///
     /// These tables are mapped to the address spaces.
-    aspace_lvl_2: [PD; linker::ASPACE_WINDOW_SIZE],
+    aspace_lvl_2: [PD; linker::ASPACE_WINDOW_SIZE / paging::GIGABYTE],
 
     /// Level-3 address space tables.
     ///
-    /// Address spaces require more fine grained control
-    aspace_lvl_1: [PT; 512 * linker::ASPACE_WINDOW_SIZE],
+    /// Address spaces are maped in 4k blocks to save as much memory.
+    aspace_lvl_1: [PT; 512 * (linker::ASPACE_WINDOW_SIZE / paging::GIGABYTE)],
 
-    /// The number of allocated address spaces. Note that this does not inlcude the BSP
-    /// address space.
+    /// The number of allocated address spaces.
     num_aspaces: u16,
 }
 
 impl KernelMap {
-    /// The virtual address range of the kernel map.
-    const KERN_VIRT_ADDR_RANGE: Range<usize> =
-        linker::VIRT_OFFSET as usize..(linker::VIRT_OFFSET + linker::KERNEL_SIZE) as usize;
+    /// The virtual address range of the kernel. This is the area in which
+    /// global kernel text and data live.
+    const KERN_VIRT_ADDR_RANGE: Range<u64> =
+        linker::VIRT_OFFSET..(linker::VIRT_OFFSET + linker::KERNEL_SIZE as u64);
 
     /// Create an empty kernel map.
     #[inline]
     pub const fn empty() -> Self {
+        assert!(
+            is_aligned::<{ paging::GIGABYTE }>(linker::ASPACE_WINDOW_SIZE as u64),
+            "ASPACE_WINDOW_SIZE must be a multiple of paging::GIGABYTE!",
+        );
+
         KernelMap {
             lvl_3: [PDPTE::NULL; 512],
             kern_lvl_2: [PDE::NULL; 512],
-            aspace_lvl_2: [[PDE::NULL; 512]; linker::ASPACE_WINDOW_SIZE],
-            aspace_lvl_1: [[PTE::NULL; 512]; 512 * linker::ASPACE_WINDOW_SIZE],
+            aspace_lvl_2: [[PDE::NULL; 512]; linker::ASPACE_WINDOW_SIZE / paging::GIGABYTE],
+            aspace_lvl_1: [[PTE::NULL; 512]; 512 * (linker::ASPACE_WINDOW_SIZE / paging::GIGABYTE)],
             num_aspaces: 0,
         }
-    }
-
-    #[inline]
-    pub const fn kernel_lvl_3(&self) -> &PDPT {
-        &self.lvl_3
     }
 
     /// Initialise the kernel map.
@@ -252,7 +246,7 @@ impl KernelMap {
             "KERNEL_SIZE too big!"
         );
         assert!(
-            linker::ASPACE_WINDOW_SIZE <= 64,
+            linker::ASPACE_WINDOW_SIZE <= (64 * paging::GIGABYTE),
             "ASPACE_WINDOW_SIZE must be smaller than 64G!"
         );
 
@@ -285,6 +279,63 @@ impl KernelMap {
         self.map_kern(bss.start as u64, virt_to_phys(bss.start as u64), bss.len());
     }
 
+    #[inline]
+    pub const fn kernel_lvl_3(&self) -> &PDPT {
+        &self.lvl_3
+    }
+
+    /// Translate the given virtual address to its physical address.
+    ///
+    /// This function only works for addresses that are within the kernel map. It
+    /// will return `None` in case the given virtual address is not part of the
+    /// kernel map, or is not mapped.
+    pub fn virt_to_phys(&self, virt: u64) -> Option<u64> {
+        if linker::VIRT_OFFSET <= virt && virt <= unsafe { linker::_end() } {
+            Some(virt - linker::VIRT_OFFSET)
+        } else if linker::ASPACE_WINDOW_START <= virt
+            && virt <= (linker::ASPACE_WINDOW_START + linker::ASPACE_WINDOW_SIZE as u64)
+        {
+            #[inline]
+            fn phys_to_virt(phys: u64) -> u64 {
+                phys + linker::VIRT_OFFSET
+            }
+
+            #[inline]
+            fn index(phys: u64, offset: u64) -> usize {
+                ((phys_to_virt(phys) - offset) / 4096) as usize
+            }
+
+            let lvl_3_entry = &self.lvl_3[pdpt_index(virt)];
+            if !lvl_3_entry.flags().contains(PDPTEFlags::P) {
+                return None;
+            }
+
+            let lvl_2_entry = {
+                let phys = lvl_3_entry.address();
+                let offset = self.aspace_lvl_2.as_ptr() as u64;
+                &self.aspace_lvl_2[index(phys, offset)][pd_index(virt)]
+            };
+
+            if !lvl_2_entry.flags().contains(PDEFlags::P) {
+                return None;
+            }
+
+            let lvl_1_entry = {
+                let phys = lvl_2_entry.address();
+                let offset = self.aspace_lvl_1.as_ptr() as u64;
+                &self.aspace_lvl_1[index(phys, offset)][pt_index(virt)]
+            };
+
+            if !lvl_1_entry.flags().contains(PTEFlags::P) {
+                return None;
+            }
+
+            Some(lvl_1_entry.frame())
+        } else {
+            None
+        }
+    }
+
     /// Allocate a number of address spaces.
     ///
     /// Address spaces will be allocated within the given memory regions.
@@ -299,7 +350,7 @@ impl KernelMap {
             "AddressSpace has wrong alignment!"
         );
         assert!(
-            (layout.size() * num as usize) > linker::ASPACE_WINDOW_SIZE,
+            (layout.size() * num as usize) <= linker::ASPACE_WINDOW_SIZE,
             "ASPACE_WINDOW_SIZE is too small!"
         );
 
@@ -310,14 +361,20 @@ impl KernelMap {
             length: virt_to_phys(linker::_end()),
         };
 
-        // Compute the usable memory regions.
+        // Compute the usable memory regions. These are the regions in which we can allocate
+        // the address spaces. Any overlapping regions are merged, and each region is aligned
+        // if necessary.
         let regions: Vec<Region, 32> = mem_info
             .iter()
-            .map(Clone::clone)
-            .filter(MemoryDescriptor::is_usable)
-            .map(|x| x.region)
+            .filter_map(|x| {
+                if x.is_usable() {
+                    Some(x.region.clone())
+                } else {
+                    None
+                }
+            })
             .coalesce(|x, y| {
-                if Region::have_overlap(&x, &y) {
+                if Region::are_overlapping(&x, &y) {
                     Ok(Region::merge(&x, &y).unwrap())
                 } else {
                     Err((x, y))
@@ -341,29 +398,45 @@ impl KernelMap {
                     Some(x)
                 }
             })
+            .filter_map(|x| {
+                if !is_aligned::<{ paging::BASE_PAGE }>(x.base) {
+                    let diff = align_up::<{ paging::BASE_PAGE }>(x.base) - x.base;
+                    if (x.length - diff) > 0 {
+                        Some(Region {
+                            base: x.base + diff,
+                            length: x.length - diff,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(x)
+                }
+            })
             .collect();
 
-        // Virtual start address for the address spaces.
         let mut virt = linker::ASPACE_WINDOW_START;
-
         assert!(
             is_aligned::<{ paging::BASE_PAGE }>(virt as _),
             "ASPACE_WINDOW_START not properly aligned!"
+        );
+        assert!(
+            pml4_index(virt as _) == 511,
+            "ASPACE_WINDOW_START must start at index #0 of the PML4!"
         );
         assert!(
             pdpt_index(virt as _) == 0,
             "ASPACE_WINDOW_START must start at index #0 of the PDPT!"
         );
 
-        let num_frames = layout.size() / paging::BASE_PAGE;
-
-        // Point the level-3 table to the correct level-2 aspace tables.
-        for i in 0..linker::ASPACE_WINDOW_SIZE {
-            let virt = linker::ASPACE_WINDOW_START + (i * paging::PD_COVERAGE);
+        (0..(linker::ASPACE_WINDOW_SIZE / paging::GIGABYTE)).for_each(|i| {
+            let virt = virt + (i * paging::PD_COVERAGE) as u64;
             let lvl3 = &mut self.lvl_3[pdpt_index(virt as _)];
             lvl3.set_address(virt_to_phys(self.aspace_lvl_2[i].as_ptr() as _));
             lvl3.set_flags(PDPTEFlags::P);
-        }
+        });
+
+        let num_frames = layout.size() / paging::BASE_PAGE;
 
         for region in regions.iter() {
             if num == 0 {
@@ -375,11 +448,11 @@ impl KernelMap {
             }
 
             let num_spaces = cmp::min(num as usize, region.length as usize / layout.size());
-            let frame_base = align_up::<{ paging::BASE_PAGE }>(region.base) as usize;
+            let frame_base = align_up::<{ paging::BASE_PAGE }>(region.base);
 
             for x in 0..num_spaces {
                 for y in 0..num_frames {
-                    let delta = (x * layout.size()) + (y * paging::BASE_PAGE);
+                    let delta = ((x * layout.size()) + (y * paging::BASE_PAGE)) as u64;
 
                     let virt = (virt + delta) as u64;
                     let frame = (frame_base + delta) as u64;
@@ -396,25 +469,30 @@ impl KernelMap {
                     lvl1.set_frame(frame);
                     lvl1.set_flags(PTEFlags::P | PTEFlags::RW);
                 }
-
-                // TODO: This is just a placeholder for now.
-                let raw_aspace = slice::from_raw_parts_mut(
-                    (virt + (x * layout.size())) as *mut u8,
-                    layout.size(),
-                );
-                raw_aspace.fill(0u8);
-
-                let aspace = (raw_aspace.as_mut_ptr() as *mut _ as *mut AddressSpace)
-                    .as_mut()
-                    .unwrap();
-                aspace.init(&self);
-
                 self.num_aspaces += 1;
             }
 
-            virt += num_spaces * layout.size();
+            virt += (num_spaces * layout.size()) as u64;
             num -= num_spaces as u16;
         }
+
+        // TODO: Is a panic necessary here? We could keep going with the spaces we have and just not use
+        // the remaining cores.
+        if num != 0 {
+            panic!(
+                "Failed to allocate address spaces! (allocated {}/{})",
+                self.num_aspaces,
+                self.num_aspaces + num
+            );
+        }
+
+        let raw = slice::from_raw_parts_mut(
+            linker::ASPACE_WINDOW_START as *mut u8,
+            self.num_aspaces as usize * layout.size(),
+        );
+
+        // Zero the memory just in case...
+        raw.fill(0u8);
     }
 
     /// Map the given virtual address to the given physical address for the given size.
@@ -424,7 +502,7 @@ impl KernelMap {
     /// not allowed and will panic.
     /// Mapping an existing virtual address to the same physical address is allowed.
     fn map_kern(&mut self, mut virt: u64, mut phys: u64, len: usize) {
-        fn is_range_valid(range: &Range<usize>) -> bool {
+        fn is_range_valid(range: &Range<u64>) -> bool {
             range.start >= KernelMap::KERN_VIRT_ADDR_RANGE.start
                 && range.start <= KernelMap::KERN_VIRT_ADDR_RANGE.end
                 && range.end >= KernelMap::KERN_VIRT_ADDR_RANGE.start
@@ -432,7 +510,7 @@ impl KernelMap {
         }
 
         // Make sure the requested range fits in the kernel map.
-        let range = virt as usize..virt as usize + len;
+        let range = virt..virt + len as u64;
 
         assert!(
             is_range_valid(&range),
@@ -477,8 +555,8 @@ impl KernelMap {
 pub const fn virt_to_phys(virt: u64) -> u64 {
     // waiting on const_range_bounds to become stable. (#108082)
     assert!(
-        KernelMap::KERN_VIRT_ADDR_RANGE.start <= virt as usize
-            && virt as usize <= KernelMap::KERN_VIRT_ADDR_RANGE.end
+        KernelMap::KERN_VIRT_ADDR_RANGE.start <= virt
+            && virt <= KernelMap::KERN_VIRT_ADDR_RANGE.end
     );
     virt - linker::VIRT_OFFSET as u64
 }
