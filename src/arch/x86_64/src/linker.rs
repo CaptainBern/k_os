@@ -47,8 +47,6 @@ macro_rules! __linker_fn {
     };
 }
 
-extern "C" {}
-
 __linker_fn!(
     #[doc = "Return the virtual start address of the text section.
     # Unsafety
