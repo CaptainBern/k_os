@@ -2,13 +2,13 @@
 //! script. Constants defined in `kernel-x86_64.lds` are just copied here.
 //! Values that are computed during linkage are accessible through functions.
 
-use crate::paging;
+use crate::mm::paging;
 
 /// The virtual offset of the kernel, mapped to hardware address 0.
 pub const VIRT_OFFSET: u64 = 0xffffffff80000000;
 
 /// The physical start address.
-pub const KERNEL_PHYS_START: u64 = 0x100000;
+pub const KERNEL_PHYS_START: u64 = 0x1000000;
 
 /// The virtual address of the kernel start.
 pub const KERNEL_START: u64 = KERNEL_PHYS_START + VIRT_OFFSET;
@@ -23,8 +23,8 @@ pub const ASPACE_WINDOW_SIZE: usize = 2 * paging::GIGABYTE;
 /// Virtual start address of the (global) address space window.
 pub const ASPACE_WINDOW_START: u64 = 0xffffff8000000000;
 
-/// The start address of the local-storage space. (entry 383 in PML4).
-pub const ASPACE_LOCAL_START: u64 = 0xffffbf8000000000;
+/// The start address of the local-storage space. (entry 510 in PML4).
+pub const ASPACE_LOCAL_START: u64 = 0xffffff0000000000;
 
 macro_rules! __linker_fn {
     (
@@ -91,12 +91,12 @@ __linker_fn!(
     #[doc = "Return the virtual address of the start of the CPU local section.
     # Unsafety
     This function depends on `_cpulocal` in `kernel-x86_64.lds`."]
-    _cpulocal() -> u64
+    _cpulocal_load_addr() -> u64
 
     #[doc = "Return the virtual address of the end of the CPU local section.
     # Unsafety
     This function depends on `_ecpulocal` in `kernel-x86_64.lds`."]
-    _ecpulocal() -> u64
+    _ecpulocal_load_addr() -> u64
 
     #[doc = "Return the virtual end of the kernel image.
     # Unsafety
