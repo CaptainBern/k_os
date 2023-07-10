@@ -52,10 +52,10 @@ _start16:
     or      $1, %eax
     mov     %eax, %cr0
 
-    .byte	0x66, 0xea # ljmp opcode
+    .byte   0x66, 0xea # ljmp opcode
 .Lpm_entry:    
-    .long	0          # offset
-    .word	(1 << 3)   # segment
+    .long   0          # offset
+    .word   (1 << 3)   # segment
 
 protected_mode:
     /* Enable PAE and PGE. */
