@@ -1,7 +1,7 @@
 use core::ptr;
 
 use spin::Once;
-use x86::msr::{rdmsr, wrmsr, IA32_APIC_BASE, IA32_X2APIC_ICR};
+use x86::msr::{rdmsr, wrmsr, IA32_APIC_BASE};
 
 use crate::{
     apic::registers::{DivideConfiguration, Timer, LVT_TIMER_REG, TIMER_DIVIDE_CONF_REG},
