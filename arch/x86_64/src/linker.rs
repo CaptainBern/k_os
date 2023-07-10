@@ -17,9 +17,6 @@ pub const KERNEL_START: u64 = KERNEL_PHYS_START + VIRT_OFFSET;
 /// represent the *actual* size of the kernel image.
 pub const KERNEL_SIZE: usize = 512 * paging::MEGABYTE;
 
-/// The virtual address at which the 4K APIC registers will be mapped.
-pub const APIC_OFFSET: u64 = KERNEL_START + KERNEL_SIZE as u64;
-
 /// The maximum number of supported (logical) CPUs.
 ///
 /// The page tables for per-CPU data are statically allocated. Lowering this
@@ -28,6 +25,27 @@ pub const MAX_CPUS: usize = 16;
 
 /// The virtual offset of the per-cpu data.
 pub const PERCPU_OFFSET: u64 = 0xffffff8000000000;
+
+/// The size of the kernel stack.
+pub const STACK_SIZE: usize = 0x4000;
+
+/// The size of the guard pages surrounding kernel stacks.
+pub const STACK_GUARD_SIZE: usize = paging::BASE_PAGE;
+
+/// The size of the interrupt stacks.
+pub const INTERRUPT_STACK_SIZE: usize = 0x4000;
+
+/// The virtual address offset at which kernel devices will be mapped.
+pub const KDEV_OFFSET: u64 = 0xffffffffc0000000;
+
+/// Virtual address where the local APIC mmio will be mapped.
+pub const LOCAL_APIC_ADDRESS: u64 = KDEV_OFFSET;
+
+/// The maximum number of IOAPICs.
+pub const MAX_IOAPICS: usize = 1;
+
+/// Offset of the IOAPICs.
+pub const IO_APIC_OFFSET: u64 = LOCAL_APIC_ADDRESS + paging::BASE_PAGE as u64;
 
 /// The virtual offset of where the physical memory will be mapped to.
 pub const PHYS_OFFSET: u64 = 0xffff800000000000;
@@ -45,7 +63,7 @@ macro_rules! __linker_fn {
     (
         $(
             $(#[$($attr:tt)*])*
-            $fn:ident() -> u64
+            $fn:ident() -> u64;
         )*
     ) => {
         $(
@@ -64,58 +82,68 @@ macro_rules! __linker_fn {
 }
 
 __linker_fn!(
+    #[doc = "Return the physical address of the boot16 code.
+    # Safety
+    This function depends on `_boot16` in `kernel-x86_64.lds`."]
+    _boot16() -> u64;
+
+    #[doc = "Return the physical address of end the boot16 code.
+    # Safety
+    This function depends on `_eboot16` in `kernel-x86_64.lds`."]
+    _eboot16() -> u64;
+
     #[doc = "Return the virtual start address of the text section.
-    # Unsafety
+    # Safety
     This function depends on `_text` in `kernel-x86_64.lds`."]
-    _text() -> u64
+    _text() -> u64;
 
     #[doc = "Return the virtual address of the end of the text section.
-    # Unsafety
+    # Safety
     This function depends on `_etext` in `kernel-x86_64.lds`."]
-    _etext() -> u64
+    _etext() -> u64;
 
     #[doc = "Return the virtual address of the start of the rodata section.
-    # Unsafety
+    # Safety
     This function depends on `_rodata` in `kernel-x86_64.lds`."]
-    _rodata() -> u64
+    _rodata() -> u64;
 
     #[doc = "Return the virtual address of the end of the rodata section.
-    # Unsafety
+    # Safety
     This function depends on `_erodata` in `kernel-x86_64.lds`."]
-    _erodata() -> u64
+    _erodata() -> u64;
 
     #[doc = "Return the virtual address of the start of the data section.
-    # Unsafety
+    # Safety
     This function depends on `_data` in `kernel-x86_64.lds`."]
-    _data() -> u64
+    _data() -> u64;
 
     #[doc = "Return the virtual address of the end of the data section.
-    # Unsafety
+    # Ssafety
     This function depends on `_edata` in `kernel-x86_64.lds`."]
-    _edata() -> u64
+    _edata() -> u64;
 
     #[doc = "Return the virtual address of the start of the bss section.
-    # Unsafety
+    # Safety
     This function depends on `_ebss` in `kernel-x86_64.lds`."]
-    _bss() -> u64
+    _bss() -> u64;
 
     #[doc = "Return the virtual address of the end of the bss section.
-    # Unsafety
+    # Ssafety
     This function depends on `_ebss` in `kernel-x86_64.lds`."]
-    _ebss() -> u64
+    _ebss() -> u64;
 
     #[doc = "Return the virtual address of the start of the percpu section.
-    # Unsafety
-    This function depends on `_percpu` in `kernel-x86_64.lds`."]
-    _percpu() -> u64
+    # Safety
+    This function depends on `_percpu_load` in `kernel-x86_64.lds`."]
+    _percpu_load() -> u64;
 
     #[doc = "Return the virtual address of the end of the percpu section.
-    # Unsafety
-    This function depends on `_epercpu` in `kernel-x86_64.lds`."]
-    _epercpu() -> u64
+    # Safety
+    This function depends on `_epercpu_load` in `kernel-x86_64.lds`."]
+    _epercpu_load() -> u64;
 
     #[doc = "Return the virtual end of the kernel image.
-    # Unsafety
+    # Safety
     This function depends on `_end` in `kernel-x86_64.lds`."]
-    _end() -> u64
+    _end() -> u64;
 );
