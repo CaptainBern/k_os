@@ -1,5 +1,9 @@
 use core::cmp::{self, Ordering};
 
+use crate::mm::paging::align_up;
+
+use super::paging::align_down;
+
 /// A memory region.
 ///
 /// Regions can either be physical or virtual, it is up to the user to make clear which
@@ -12,21 +16,35 @@ pub struct Region {
 
 impl Region {
     /// Calculate the end address of the region.
-    #[inline]
     pub fn end(&self) -> u64 {
         self.base + self.length as u64
     }
 
     /// Return true if `x` and `y` have any overlap.
-    #[inline]
     pub fn are_overlapping(x: &Region, y: &Region) -> bool {
         (x.base <= y.end()) && (x.end() >= y.base)
+    }
+
+    /// Align the region for the given alignment. This also aligns the length.
+    ///
+    /// Returns None if the alignment can't be done.
+    pub const fn align<const ALIGNMENT: usize>(&self) -> Option<Region> {
+        let base = align_up::<ALIGNMENT>(self.base);
+        let diff = base - self.base;
+
+        if self.length <= (ALIGNMENT + diff as usize) {
+            None
+        } else {
+            Some(Region {
+                base,
+                length: align_down::<ALIGNMENT>(self.length as u64 - diff) as usize,
+            })
+        }
     }
 
     /// Merge two regions.
     ///
     /// Returns [None] if the regions are not overlapping or are not of the same [RegionKind].
-    #[inline]
     pub fn merge(x: &Region, y: &Region) -> Option<Region> {
         if Region::are_overlapping(x, y) {
             let base = cmp::min(x.base, y.base);

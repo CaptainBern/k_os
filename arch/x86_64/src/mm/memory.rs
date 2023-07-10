@@ -1,4 +1,4 @@
-use core::cmp;
+use core::cmp::Ordering;
 
 use heapless::{binary_heap::Min, BinaryHeap, Vec};
 use itertools::Itertools;
@@ -7,8 +7,10 @@ use crate::linker;
 
 use super::{
     desc::{MemoryDescriptor, Region},
-    paging::{self, align_up, is_aligned},
+    paging,
 };
+
+const LOWERMEM_END: u64 = paging::MEGABYTE as u64;
 
 pub type Result<T> = core::result::Result<T, MemoryError>;
 
@@ -21,18 +23,27 @@ pub enum MemoryError {
 #[derive(Debug)]
 pub struct Memory<const NUM_REGIONS: usize> {
     /// An heap of usable memory regions.
-    mem: BinaryHeap<Region, Min, { crate::MAX_MEM_REGIONS }>,
+    ///
+    /// Note that the heap is `+ 1` in size here. When we parse the region
+    /// containing the kernel, we need to split it in two, which would create
+    /// an extra entry.
+    mem: BinaryHeap<Region, Min, { crate::MAX_MEM_REGIONS + 1 }>,
 }
 
 impl<const NUM_REGIONS: usize> Memory<NUM_REGIONS> {
     /// Initialise the free memory using the given descriptors.
+    ///
+    /// Any descriptor for memory within the first 1M will be discarded. Overlapping regions
+    /// will be merged, and every region is 4K aligned. Memory occupied by the kernel will
+    /// not be included, so any frame retrieved with [`next`] is guaranteed to be free.
     pub fn new(descriptors: &Vec<MemoryDescriptor, { crate::MAX_MEM_REGIONS }>) -> Self {
         let kernel_region: Region = Region {
-            base: 0,
+            base: linker::KERNEL_PHYS_START,
             length: (linker::_end() - linker::VIRT_OFFSET) as usize,
         };
+        let kernel_region = kernel_region.align::<{ paging::BASE_PAGE }>().unwrap();
 
-        let mut mem: BinaryHeap<Region, Min, { crate::MAX_MEM_REGIONS }> = BinaryHeap::new();
+        let mut mem: BinaryHeap<Region, Min, { crate::MAX_MEM_REGIONS + 1 }> = BinaryHeap::new();
         let mut descriptors = descriptors.clone();
 
         // For the coalescing we need the regions to be sorted.
@@ -54,36 +65,80 @@ impl<const NUM_REGIONS: usize> Memory<NUM_REGIONS> {
                     Err((left, right))
                 }
             })
+            .filter_map(|region| region.align::<{ paging::BASE_PAGE }>())
             .filter_map(|region| {
-                // The provided regions *should* be properly aligned, but y'know, just in case
-                // we get a weird bios.
-                if !is_aligned::<{ paging::BASE_PAGE }>(region.base) {
-                    let diff = align_up::<{ paging::BASE_PAGE }>(region.base) - region.base;
-                    if (region.length as u64 - diff) > 0 {
-                        Some(Region {
-                            base: region.base + diff,
-                            length: region.length - diff as usize,
-                        })
-                    } else {
+                if region.base < LOWERMEM_END {
+                    if region.end() < LOWERMEM_END {
                         None
+                    } else {
+                        Some(Region {
+                            base: LOWERMEM_END,
+                            length: (region.end() - LOWERMEM_END) as usize,
+                        })
                     }
                 } else {
                     Some(region)
                 }
             })
-            .filter_map(|region| {
-                if region.end() <= kernel_region.end() {
-                    None
-                } else if region.base <= kernel_region.end() {
-                    Some(Region {
-                        base: kernel_region.end(),
-                        length: (region.end() - kernel_region.end()) as usize,
-                    })
-                } else {
-                    Some(region)
+            .for_each(|region| {
+                let final_region = {
+                    if Region::are_overlapping(&region, &kernel_region) {
+                        if region.end() <= kernel_region.end() {
+                            if region.base < kernel_region.base {
+                                // Region end lies before kernel end, region base lies before
+                                // kernel base, since we overlap that means the region end falls
+                                // partly inside the kernel region.
+                                Some(Ok(Region {
+                                    base: region.base,
+                                    length: (kernel_region.base - region.base) as usize,
+                                }))
+                            } else {
+                                // The region base falls inside the kernel region, as does the end,
+                                // so we discard it.
+                                None
+                            }
+                        } else {
+                            if region.base < kernel_region.base {
+                                // The region end falls beyond the kernel region end, and region
+                                // base falls before the kernel region base. That means the region
+                                // is split in half by the kernel region.
+                                let before = Region {
+                                    base: region.base,
+                                    length: (kernel_region.base - region.base) as usize,
+                                };
+
+                                let after = Region {
+                                    base: kernel_region.end(),
+                                    length: (region.end() - kernel_region.end()) as usize,
+                                };
+
+                                Some(Err((before, after)))
+                            } else {
+                                Some(Ok(Region {
+                                    base: kernel_region.end(),
+                                    length: (region.end() - kernel_region.end()) as usize,
+                                }))
+                            }
+                        }
+                    } else {
+                        Some(Ok(region))
+                    }
+                };
+
+                if let Some(region) = final_region {
+                    // Safety: we have at most `NUM_REGIONS` to work with. Any overlapping or
+                    // duplicates are merged first. So, there can only be a single occurance
+                    // of a region splitting in two because the kernel lies in the middle of it.
+                    // Since the heap we use is `NUM_REGIONS + 1`, it should not overflow.
+                    match region {
+                        Ok(region) => unsafe { mem.push_unchecked(region) },
+                        Err((before, after)) => unsafe {
+                            mem.push_unchecked(before);
+                            mem.push_unchecked(after);
+                        },
+                    }
                 }
-            })
-            .for_each(|region| unsafe { mem.push_unchecked(region) }); // SAFETY: 'mem' and 'descriptors' have the same length.
+            });
 
         Memory { mem }
     }
@@ -95,22 +150,33 @@ impl<const NUM_REGIONS: usize> Memory<NUM_REGIONS> {
         self.mem.peek().map_or(0, |r| r.length)
     }
 
+    /// Peek the next frame.
+    pub fn peek(&self) -> Result<u64> {
+        if self.max() < paging::BASE_PAGE {
+            Err(MemoryError::Oom)
+        } else {
+            self.mem
+                .peek()
+                .map(|region| region.base)
+                .ok_or(MemoryError::Oom)
+        }
+    }
+
     /// Return the next 4K block.
     pub fn next(&mut self) -> Result<u64> {
         match self.max().cmp(&paging::BASE_PAGE) {
-            cmp::Ordering::Less => {
-                if let Some(_) = self.mem.pop() {
-                    self.next()
-                } else {
-                    Err(MemoryError::Oom)
-                }
+            Ordering::Less => {
+                // Every region on the heap is 4K aligned and popped when empty.
+                // Hence if we ever come across this situation, either the heap is empty
+                // or there's a malformed region, which is a bug.
+                Err(MemoryError::Oom)
             }
-            cmp::Ordering::Equal => self
+            Ordering::Equal => self
                 .mem
                 .pop()
                 .map(|region| region.base)
                 .ok_or(MemoryError::Oom),
-            cmp::Ordering::Greater => {
+            Ordering::Greater => {
                 let mut region = self.mem.peek_mut().unwrap();
                 let base = region.base;
                 region.base += paging::BASE_PAGE as u64;
