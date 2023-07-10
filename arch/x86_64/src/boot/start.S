@@ -2,8 +2,10 @@
 .global KERNEL_ENTRY
 KERNEL_ENTRY = _start
 
+VIRT_OFFSET = 0xffffffff80000000;
+
 .section ".text.boot", "ax", @progbits
-.align 8
+.balign 8
 .code32
 _start:
     cli
@@ -13,16 +15,17 @@ _start:
     cmpl    $0x36d76289, %eax
     jne     1f
 
-    /* Manually zero the physical BSS. */
+    /* Manually zero BSS, just in case. */
     xorl    %eax, %eax
-    movl    $_bss_boot, %edi
-    movl    $_ebss_boot, %ecx
+    movl    $(_bss - VIRT_OFFSET), %edi
+    movl    $(_ebss - VIRT_OFFSET), %ecx
     subl    %edi, %ecx
     shrl    $2, %ecx
     rep     stosl
 
-    /* Setup a temporary stack. */
-    leal    boot_stack_top, %esp
+    /* Setup boot stack. */
+    leal    ((BOOT_STACK+0x4000) - VIRT_OFFSET), %esp
+    movl    %esp, %ebp
 
     /* Save multiboot info. */
     pushl   $0
@@ -79,9 +82,9 @@ _start:
      * the table) is used to map the top -2G of virtual memory to the first 2G
      * of physical memory (where the kernel is located).
      */
-    movl    $BOOT_PML4, %edi
+    movl    $(BOOT_PML4 - VIRT_OFFSET), %edi
 
-    movl    $BOOT_PDPT, %eax
+    movl    $(BOOT_PDPT - VIRT_OFFSET), %eax
     orl     $(1 << 2 | 1 << 1 | 1 << 0), %eax
     movl    %eax, (%edi)
     movl    %eax, 511 * 8(%edi)
@@ -91,8 +94,8 @@ _start:
      * tables but we will only use the first 2 PD tables for the higher-memory
      * map.
      */
-    movl    $BOOT_PDPT, %edi
-    movl    $BOOT_PDS, %eax
+    movl    $(BOOT_PDPT - VIRT_OFFSET), %edi
+    movl    $(BOOT_PDS - VIRT_OFFSET), %eax
     orl     $(1 << 2 | 1 << 1 | 1 << 0), %eax
 
     movl    %eax, 0(%edi)
@@ -113,7 +116,7 @@ _start:
      * that's all we need to be able to get to Rust. Once we are in Rust, we
      * can do some more fine-grained mapping.
      */
-    movl    $BOOT_PDS, %edi
+    movl    $(BOOT_PDS - VIRT_OFFSET), %edi
     movl    $(1 << 8 | 1 << 7 | 1 << 1 | 1 << 0), %eax
     movl    $(512 * 4), %ecx
 0:
@@ -129,7 +132,13 @@ _start:
     movl    %eax, %cr0
 
     /* Load the early GDT. */
-    lgdt    BOOT_GDT_PTR
+    sub     $6, %esp
+    movw    (BOOT_GDT_PTR - VIRT_OFFSET), %ax
+    movl    ((BOOT_GDT_PTR+2) - VIRT_OFFSET), %ebx
+    subl    $VIRT_OFFSET, %ebx
+    movw    %ax, -6(%esp)
+    movl    %ebx, -4(%esp)
+    lgdt    -6(%esp)
 
     /* Enable PAE and PGE. */
     movl    %cr4, %eax
@@ -137,7 +146,7 @@ _start:
     movl    %eax, %cr4
 
     /* Load the PML4 table into cr3. */
-    leal    BOOT_PML4, %eax
+    leal    (BOOT_PML4 - VIRT_OFFSET), %eax
     movl    %eax, %cr3
 
     /* Enable long mode. */
@@ -147,12 +156,13 @@ _start:
     wrmsr
 
     /* Prepare to jump into long mode. */
-    pushl   $8
+    pushl   $(1 << 3)
     movl    $low_entry, %eax
     pushl   %eax
 
-    /* Enable PG and PE */
-    movl    $(1 << 31 | 1 << 0), %eax
+    /* Enable CR0.PG */
+    movl    %cr0, %eax
+    orl     $(1 << 31), %eax
     movl    %eax, %cr0
 
     /* Jump into long mode. */
@@ -171,7 +181,7 @@ low_entry:
     jmp     *%rax
 
 .text
-.extern     boot
+.extern     pre_boot
 high_entry:
     /*
      * At this point we're running in a virtual address. From now on, all code
@@ -186,25 +196,23 @@ high_entry:
     movl    %eax, %gs
     movl    %eax, %fs
 
+    /* Reload GDT with the proper, virtual, pointer. */
+    lgdt    BOOT_GDT_PTR(%rip)
+
+    /* We're on the proper GDT ptr now, so set stack to previous state. */
+    addq    $6, %rsp
+
+    /* Update stack offset to the correct, virtual, address. */
+    addq    $VIRT_OFFSET, %rsp
+    addq    $VIRT_OFFSET, %rbp
+
     /* Retrieve multiboot info from the boot stack. */
     pop     %rdi
 
-    /* Load boot stack. It is defined in `boot.rs`. */
-    leaq    BOOT_STACK+0x4000(%rip), %rsp
-
     /* Jump into Rust. */
-    call    boot
+    call    pre_boot
 
     /* boot is not supposed to return, but if it does, just hang on. */
 1:
     hlt
     jmp     1b
-
-/*
- * Initial boot stack.
- */
-.section ".bss.boot"
-.balign 16
-boot_stack_bottom:
-    .skip   8192
-boot_stack_top:
