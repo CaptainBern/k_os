@@ -12,7 +12,6 @@
     "relocation-model": "pic",
     "disable-redzone": true,
     "tls-model": "global-dynamic",
-    "linker": "rust-lld",
     "linker-flavor": "ld.lld",
     "pre-link-args": {
         "ld.lld": [

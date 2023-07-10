@@ -18,7 +18,7 @@ KERNEL_START = KERNEL_PHYS_START + VIRT_OFFSET;
 KERNEL_SIZE = 512 * 1024 * 1024;
 
 /* The maximum .percpu size. This value may not exceed KERNEL_PHYS_START. */
-PERCPU_SIZE = 2 * 1024 * 1024;
+PERCPU_SIZE = 1 * 1024 * 1024;
 
 /* Maximum number of supported CPUs. Lowering this value will save some memory. */
 MAX_CPUS = 16;
@@ -26,13 +26,13 @@ MAX_CPUS = 16;
 /*
  * .percpu is linked at 0. If they happen to overflow beyond the physical offset, the linker will complain.
  */
-ASSERT(PERCPU_SIZE < KERNEL_PHYS_START, "PERCPU_SIZE may not exceed KERNEL_PHYS_START!");
+ASSERT(PERCPU_SIZE <= KERNEL_PHYS_START, "PERCPU_SIZE may not exceed KERNEL_PHYS_START!");
 
 /*
  * The KERNEL_SIZE may not exceed 1G. It's just for convenience since that way we can map everything
  * using a single PD.
  */
-ASSERT(KERNEL_SIZE < (1024 * 1024 * 1024), "KERNEL_SIZE may not exceed 1G!");
+ASSERT(KERNEL_SIZE <= (1024 * 1024 * 1024), "KERNEL_SIZE may not exceed 1G!");
 
 /*
  * The virtual window in which we store per-cpu data may not exceed 8G.
@@ -49,69 +49,62 @@ SECTIONS
         KEEP(*(.header.*))
     }
 
-    . = ALIGN(4K);
-    .text.boot : {
+    .text.boot ALIGN(4K) : {
         *(.text.boot)
     }
 
-    . = ALIGN(4K);
-    .data.boot : {
-        *(.data.boot)
+    .text.boot16 ALIGN(4K) : {
+        _boot16 = .;
+        KEEP(*(.text.boot16))
+        _eboot16 = .;
     }
 
-    . = ALIGN(4K);
-    .bss.boot (NOLOAD) : {
-        _bss_boot = .;
-        *(.bss.boot)
-        _ebss_boot = .;
+    .bss.boot16 (NOLOAD) : {
+        . += ALIGN(4K) + 0x1000;
     }
 
     /*
      * Start of the actual kernel.
      */
-    . = ALIGN(4K) + VIRT_OFFSET;
-    .text : AT(ADDR(.text) - VIRT_OFFSET) {
+    . = . + VIRT_OFFSET;
+    .text ALIGN(4K) : AT(ADDR(.text) - VIRT_OFFSET) {
         _text = .;
         *(.text)
         *(.text.*)
         _etext = .;
     }
 
-    . = ALIGN(4K);
-    .rodata : AT(ADDR(.rodata) - VIRT_OFFSET) {
+    .rodata ALIGN(4K) : AT(ADDR(.rodata) - VIRT_OFFSET) {
         _rodata = .;
         *(.rodata)
         *(.rodata.*)
         _erodata = .;
     }
 
-    . = ALIGN(2M);
-    .data : AT(ADDR(.data) - VIRT_OFFSET) {
+    .data ALIGN(2M) : AT(ADDR(.data) - VIRT_OFFSET) {
         _data = .;
         *(.data)
         *(.data.*)
         _edata = .;
     }
 
-    .bss : AT(ADDR(.bss) - VIRT_OFFSET) {
+    .bss (NOLOAD) : AT(ADDR(.bss) - VIRT_OFFSET) {
         _bss = .;
         *(.bss)
         *(.bss.*)
         _ebss = .;
     }
 
-   /* . = ALIGN(4K);
-    _percpu = .;
-    .cpulocal 0 : AT(_percpu - VIRT_OFFSET) {
-        *(.cpulocal)
-        *(.cpulocal.*)
+    _percpu_load = ALIGN(4K);
+    .percpu 0 : AT(_percpu_load - VIRT_OFFSET) {
+        *(.percpu)
+        *(.percpu.*)
     }
-    _epercpu = _cpulocal + SIZEOF(.percpu) + ALIGN(4K);
+    _epercpu_load = _percpu_load + SIZEOF(.percpu);
+    . = _epercpu_load;
 
-    /* Make sure we stay within our constraints. 
-    ASSERT(SIZEOF(.percpu) <= PERCPU_SIZE, ".percpu too big!")
-
-    . = _epercpu; */
+    /* Make sure we don't overlap with `.header` and `.text.boot(16)`. */
+    ASSERT(SIZEOF(.percpu) <= KERNEL_PHYS_START, "CPU local too big!")
 
     _end = .;
 

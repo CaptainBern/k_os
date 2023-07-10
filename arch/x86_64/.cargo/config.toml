@@ -1,0 +1,6 @@
+[unstable]
+build-std = ["core", "alloc", "compiler_builtins"]
+build-std-features = ["panic-unwind"]
+
+#[build]
+#rustflags = ["--emit=llvm-ir"]
