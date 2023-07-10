@@ -5,6 +5,8 @@
 //!  - AMD64 Architecture Programmer's Manual Vol. 2 Chapters 4 and 8.
 //!  - Intel Software Developer's Manual Vol. 3 Chapters 5, 6, and 7.
 
+use core::mem;
+
 use bitflags::bitflags;
 use x86::segmentation::SegmentSelector;
 
@@ -119,7 +121,6 @@ pub enum UserDescriptorType {
 }
 
 impl UserDescriptorType {
-    #[inline]
     pub const fn bits(&self) -> u8 {
         match self {
             UserDescriptorType::Code(code) => code.bits,
@@ -175,7 +176,6 @@ macro_rules! generic_descriptor {
         }
 
         impl $descriptor {
-            #[inline]
             pub const fn new(
                 base: $base,
                 limit: u32,
@@ -198,13 +198,11 @@ macro_rules! generic_descriptor {
                 $descriptor { bits: bits }
             }
 
-            #[inline]
             pub fn set_limit(&mut self, limit: u32) {
                 self.bits &= !(0xf00000000ffff);
                 self.bits |= ((limit as $bits) & 0xf0000) << 32 | (limit as $bits) & 0xffff;
             }
 
-            #[inline]
             pub fn set_base(&mut self, base: $base) {
                 self.bits &=!(
                     if <$base>::BITS == 64 {
@@ -220,7 +218,6 @@ macro_rules! generic_descriptor {
                     } | ((base as $bits) & 0xff000000) << 24 | ((base as $bits) & 0xffffff) << 16;
             }
 
-            #[inline]
             pub fn set_flags(&mut self, flags: DescriptorFlags) {
                 self.bits &= !(0xf0000000000000);
                 self.bits |= ((flags.bits() as $bits) & 0xf) << 52;
@@ -232,13 +229,11 @@ macro_rules! generic_descriptor {
 macro_rules! impl_descriptor_common {
     ($descriptor:ty, $typ:ty, $bits:ty) => {
         impl $descriptor {
-            #[inline]
             pub fn set_type(&mut self, typ: $typ) {
                 self.bits &= !(0xf0000000000);
                 self.bits |= ((typ.bits() as $bits) & 0xf) << 40;
             }
 
-            #[inline]
             pub fn set_access(&mut self, access: Access) {
                 self.bits &= !(0xf00000000000);
                 self.bits |= ((access.bits() as $bits) & 0xf) << 44;
@@ -283,7 +278,6 @@ pub struct GateDescriptor {
 impl GateDescriptor {
     pub const NULL: GateDescriptor = GateDescriptor { bits: 0 };
 
-    #[inline]
     pub const fn new(
         offset: u64,
         selector: SegmentSelector,
@@ -300,19 +294,16 @@ impl GateDescriptor {
         GateDescriptor { bits }
     }
 
-    #[inline]
     pub fn set_offset(&mut self, offset: u64) {
         self.bits &= !(0xffffffffffff00000000ffff);
         self.bits |= ((offset as u128) & 0xffffffffffff0000) << 32 | (offset as u128) & 0xffff;
     }
 
-    #[inline]
     pub fn set_selector(&mut self, selector: SegmentSelector) {
         self.bits &= !(0xffff0000);
         self.bits |= ((selector.bits() as u128) & 0xffff) << 16
     }
 
-    #[inline]
     pub fn set_ist(&mut self, ist: u8) {
         self.bits &= !(0b111 << 32);
         self.bits |= ((ist as u128) & 0b111) << 32;
@@ -321,43 +312,34 @@ impl GateDescriptor {
 
 impl_descriptor_common!(GateDescriptor, GateDescriptorType, u128);
 
+/// The I/O-Permission Bitmap can be up to 8KiB.
+pub const IOPB_BYTES: usize = 8192;
+
+/// 64-bit Task State Segment.
 #[derive(Debug, Clone, Copy)]
 #[repr(packed)]
 pub struct Tss {
     pub _reserved0: [u8; 4],
-    pub rsp0: u64,
-    pub rsp1: u64,
-    pub rsp2: u64,
-    pub _reserved1: [u8; 4],
-    pub ist1: u64,
-    pub ist2: u64,
-    pub ist3: u64,
-    pub ist4: u64,
-    pub ist5: u64,
-    pub ist6: u64,
-    pub ist7: u64,
-    pub _reserved2: [u8; 6],
-    pub io_map_base: u16,
+    pub rsp: [u64; 3],
+    pub _reserved1: [u8; 8],
+    pub ist: [u64; 7],
+    pub _reserved2: [u8; 10],
+    pub io_pmap_base: u16,
 }
 
 impl Tss {
-    #[inline]
-    pub const fn new(rsp0: u64, io_map_base: u16) -> Tss {
+    pub const fn new(rsp0: u64) -> Tss {
+        Tss::new_with_base(rsp0, mem::size_of::<Tss>() as u16)
+    }
+
+    pub const fn new_with_base(rsp0: u64, base: u16) -> Tss {
         Tss {
             _reserved0: [0; 4],
-            rsp0,
-            rsp1: 0,
-            rsp2: 0,
-            _reserved1: [0; 4],
-            ist1: 0,
-            ist2: 0,
-            ist3: 0,
-            ist4: 0,
-            ist5: 0,
-            ist6: 0,
-            ist7: 0,
-            _reserved2: [0; 6],
-            io_map_base,
+            rsp: [rsp0, 0, 0],
+            _reserved1: [0; 8],
+            ist: [0; 7],
+            _reserved2: [0; 10],
+            io_pmap_base: base,
         }
     }
 }
