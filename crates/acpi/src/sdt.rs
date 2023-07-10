@@ -40,17 +40,14 @@ impl SdtHeader {
         }
     }
 
-    #[inline]
     pub fn signature(&self) -> result::Result<&str, str::Utf8Error> {
         str::from_utf8(&self.signature)
     }
 
-    #[inline]
     pub fn oemid(&self) -> result::Result<&str, str::Utf8Error> {
         str::from_utf8(&self.oemid)
     }
 
-    #[inline]
     pub fn oem_table_id(&self) -> result::Result<&str, str::Utf8Error> {
         str::from_utf8(&self.oem_table_id)
     }

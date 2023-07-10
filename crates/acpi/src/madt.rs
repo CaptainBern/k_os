@@ -23,7 +23,7 @@ bitflags! {
 #[repr(C, packed)]
 pub struct Madt {
     pub header: SdtHeader,
-    pub local_interrupt_controller_address: u32,
+    pub local_apic_address: u32,
     pub flags: MaFlags,
 }
 
