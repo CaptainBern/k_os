@@ -65,7 +65,7 @@ macro_rules! __interrupt_handler_internal {
         $vis unsafe extern "C" fn $name() {
             #[allow(dead_code)]
             extern "C" fn rust($frame: &mut $frame_ty $(, $error_code: u64)?) {
-                let _: &mut $crate::interrupts::handler::Frame = $frame; // type guard.
+                let _: &mut $crate::idt::handler::Frame = $frame; // type guard.
 
                 {
                     $code

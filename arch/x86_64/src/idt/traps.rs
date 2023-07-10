@@ -1,6 +1,6 @@
 use x86::controlregs::cr2;
 
-use crate::{interrupt_handler, interrupts::handler::Frame, paranoid_interrupt_handler, println};
+use crate::{idt::handler::Frame, interrupt_handler, paranoid_interrupt_handler, println};
 
 interrupt_handler! {
     pub fn divide_by_zero(frame: &mut Frame) {
@@ -85,7 +85,7 @@ interrupt_handler! {
         let addr = unsafe {
             cr2()
         };
-        println!("Page fault: {:?}, error: {:#04x}, addr: {:#018x}", frame, error, addr);
+        println!("Page fault: {:?}, error: {:#04b}, addr: {:#018x}", frame, error, addr);
     }
 }
 
