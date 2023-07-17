@@ -14,9 +14,11 @@ use super::paging;
 ///         +-------------------+
 ///         |       stack       |
 ///         +-------------------+
+///         |    guard page     |
+///         +-------------------+
 ///                ...
 pub const PERCPU_WINDOW_SIZE: usize =
-    (linker::KERNEL_PHYS_START as usize + linker::STACK_SIZE + linker::STACK_GUARD_SIZE)
+    (linker::KERNEL_PHYS_START as usize + linker::STACK_SIZE + (linker::STACK_GUARD_SIZE * 2))
         * linker::MAX_CPUS;
 
 pub const NUM_PERCPU_PDS: usize = paging::num_tables::<{ paging::PD_COVERAGE }>(PERCPU_WINDOW_SIZE);

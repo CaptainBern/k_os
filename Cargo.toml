@@ -1,6 +1,13 @@
 [workspace]
+resolver = "2"
 members = [
     "xtask",
-    "src/kernel",
-    "src/arch/x86_64",
+    "crates/*",
+    "arch/*",
 ]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

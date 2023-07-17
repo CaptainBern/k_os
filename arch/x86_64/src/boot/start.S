@@ -23,7 +23,7 @@ _start:
     shrl    $2, %ecx
     rep     stosl
 
-    /* Setup boot stack. */
+    /* Setup bsp stack. */
     leal    ((BOOT_STACK+0x4000) - VIRT_OFFSET), %esp
     movl    %esp, %ebp
 
@@ -61,7 +61,7 @@ _start:
     testl   $(1 << 25), %edx
     jz      1f
 
-    /* Check for extended-mode (required to check for longmode). */
+    /* Check for extended-mode. */
     movl    $0x80000000, %eax
     cpuid
     cmpl    $0x80000001, %eax
@@ -71,6 +71,18 @@ _start:
     movl    $0x80000001, %eax
     cpuid
     testl   $(1 << 29), %edx
+    jz      1f
+
+    /* Check for XD. */
+    movl    $0x80000001, %eax
+    cpuid
+    testl   $(1 << 20), %edx
+    jz      1f
+
+    /* Check for 1G pages. */
+    movl    $0x80000001, %eax
+    cpuid
+    testl   $(1 << 26), %edx
     jz      1f
 
 .Lpaging_setup:
@@ -149,10 +161,10 @@ _start:
     leal    (BOOT_PML4 - VIRT_OFFSET), %eax
     movl    %eax, %cr3
 
-    /* Enable long mode. */
+    /* Enable long mode and NXE. */
     movl    $0xc0000080, %ecx
     rdmsr
-    orl     $(1 << 8), %eax
+    orl      $(1 << 11 | 1 << 8), %eax
     wrmsr
 
     /* Prepare to jump into long mode. */

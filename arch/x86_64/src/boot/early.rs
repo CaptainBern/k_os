@@ -9,12 +9,9 @@ use crate::{
         Access, CodeSegmentBits, DataSegmentBits, DescriptorFlags, UserDescriptor,
         UserDescriptorType,
     },
+    linker,
     mm::paging::{PD, PDPT, PML4},
 };
-
-/// Size of the boot stack. This value should be kept equal to
-/// the one specified in `start.S`.
-pub const BOOT_STACK_SIZE: usize = 0x4000;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -26,13 +23,13 @@ struct BootGdt {
 }
 
 #[repr(C, align(16))]
-pub struct BootStack(pub [u8; BOOT_STACK_SIZE]);
+pub struct Stack(pub [u8; linker::STACK_SIZE]);
 
 /// Early boot stack. When changing the size, it should also be changed
 /// in `start.S`.
 #[used]
 #[no_mangle]
-pub static mut BOOT_STACK: BootStack = BootStack([0u8; BOOT_STACK_SIZE]);
+pub static mut BOOT_STACK: Stack = Stack([0u8; linker::STACK_SIZE]);
 
 /// The level 4 page table, initialised in `head.S`. It contains two entries,
 /// each pointing to [BOOT_PDPT]. The first entry is responsible for identity

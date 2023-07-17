@@ -1,10 +1,10 @@
 mod arch;
-mod flags;
 mod build;
+mod flags;
 mod run;
 
-use std::path::{PathBuf, Path};
-use xshell::{Shell};
+use std::path::{Path, PathBuf};
+use xshell::Shell;
 
 fn main() -> anyhow::Result<()> {
     let sh = &Shell::new()?;
@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         flags::XtaskCmd::Build(cmd) => cmd.run(sh),
-        flags::XtaskCmd::Run(cmd) => cmd.run(sh)
+        flags::XtaskCmd::Run(cmd) => cmd.run(sh),
     }
 }
 

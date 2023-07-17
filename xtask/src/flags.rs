@@ -16,6 +16,7 @@ xflags::xflags! {
         cmd run {
             optional -a, --arch arch: Arch
             optional --release
+            optional --debug
         }
     }
 }
@@ -50,6 +51,7 @@ pub struct Build {
 pub struct Run {
     pub arch: Option<Arch>,
     pub release: bool,
+    pub debug: bool,
 }
 
 impl Xtask {

@@ -6,16 +6,11 @@ pub mod map;
 pub mod memory;
 pub mod paging;
 
-use core::{
-    cell::OnceCell,
-    ops::Range,
-    slice,
-    sync::atomic::{compiler_fence, Ordering},
-};
+use core::{cell::OnceCell, ops::Range, slice};
 
 use heapless::Vec;
 use spin::{Mutex, Once};
-use x86::{controlregs::cr3_write, current::paging::PML4Flags};
+use x86::controlregs::cr3_write;
 
 use crate::linker;
 
@@ -218,6 +213,7 @@ unsafe fn allocate_per_cpus<const LINK_OFFSET: usize>(
 
     // Make sure we aren't allocating more than we can handle.
     assert!(num <= linker::MAX_CPUS);
+    assert!(num >= 1);
 
     let mut info: Vec<PerCpuInfo, { linker::MAX_CPUS }> = Vec::new();
 
@@ -246,6 +242,9 @@ unsafe fn allocate_per_cpus<const LINK_OFFSET: usize>(
             map(mapper, &mut PERCPU_PDS, &mut PERCPU_PTS, virt, frame);
             virt += paging::BASE_PAGE as u64;
         }
+
+        // Stack guard hole.
+        virt += linker::STACK_GUARD_SIZE as u64;
 
         info.push(PerCpuInfo {
             storage,
@@ -279,7 +278,7 @@ unsafe fn allocate_per_cpus<const LINK_OFFSET: usize>(
 ///
 /// This function maps the kernel and physical memory windows. It does not
 /// activate the kernel pages! This function should only be called once.
-pub fn init_once() {
+pub fn init() {
     static INIT: Once<()> = Once::new();
     INIT.call_once(|| unsafe {
         let mut mapper: Mapper<{ linker::VIRT_OFFSET as usize }> = Mapper::new(&mut TOP);

@@ -50,7 +50,7 @@ pub fn set_ist(vector: u8, ist: u8) {
 }
 
 /// Initialise the early interrupt descriptor table.
-pub fn init_once() {
+pub fn init() {
     static INIT: Once<()> = Once::new();
     INIT.call_once(|| {
         unsafe fn set_gate(vector: u8, isr: unsafe extern "C" fn()) {
