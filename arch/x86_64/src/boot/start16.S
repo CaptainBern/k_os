@@ -4,10 +4,10 @@
 .section ".text.boot16", "ax", @progbits
 .balign 4096
 
-BOOTSTRAP_GDT_OFFSET = 0;
+BOOTSTRAP_GDT_PTR_OFFSET = 0;
 BOOTSTRAP_KERNEL_TOP_OFFSET = 42;
-BOOTSTRAP_PERCPU_STACK_OFFSET = 50;
-BOOTSTRAP_PERCPU_STORAGE_OFFSET = 58;
+BOOTSTRAP_STACK_OFFSET = 50;
+BOOTSTRAP_PERCPU_OFFSET = 58;
 
 .code16
 .global _start16
@@ -45,7 +45,7 @@ _start16:
     mov     %eax, %cs:(.Llm_entry - _start16)
 
     /* Load bootstrap GDT. */
-    lgdtl   %ds:BOOTSTRAP_GDT_OFFSET
+    lgdtl   %ds:BOOTSTRAP_GDT_PTR_OFFSET
 
     /* Enable CR0.PE, entering protected mode. */
     mov     %cr0, %eax
@@ -67,7 +67,7 @@ protected_mode:
     mov     $(BOOT_PML4 - VIRT_OFFSET), %eax
     mov     %eax, %cr3
 
-    /* Enable long mode and NXE (needed for the final kernel pages). */
+    /* Enable long mode and NXE. */
     mov     $0xc0000080, %ecx
     rdmsr
     or      $(1 << 11 | 1 << 8), %eax
@@ -117,11 +117,12 @@ transition:
     mov    %rax, %cr3
 
     /* Use per-cpu stack. */
-    mov     BOOTSTRAP_PERCPU_STACK_OFFSET(%rsi), %rsp
-    mov     %rsp, %rbp
+    mov     BOOTSTRAP_STACK_OFFSET(%rsi), %rdi
+    mov     %rdi, %rsp
+    mov     %rdi, %rbp
 
-    /* The per-CPU storage is setup in Rust, so we just pass it along. */
-    mov     BOOTSTRAP_PERCPU_STORAGE_OFFSET(%rsi), %rdi
+    /* Pass stack- and per-CPU offsets to boot_ap. */
+    mov     BOOTSTRAP_PERCPU_OFFSET(%rsi), %rsi
 
     call    boot_ap
 
