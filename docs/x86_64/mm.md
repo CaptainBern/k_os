@@ -1,4 +1,4 @@
-# Kenrel memory layout
+# Kernel memory layout
 
 ## About paging
 
@@ -34,20 +34,19 @@ layout of the kernel address space is as follows:
 | 0x0000000000000000 | 0x00007fffffffffff | 128TB  | userspace (47 bits)                                              |
 | 0xffff800000000000 | 0xffffbfffffffffff | 64TB   | direct mapping of all physical memory                            |
 |                    |                    | 63.5TB | unused gap                                                       |
-| 0xffffff8000000000 | 0xffffff81ffffffff | 8G     | per cpu data (with a limit of 16MB, 8G supports up to 512 cores) |
-|                    |                    | 502GB  | unused gap                                                       |
+| 0xffffff8000000000 | 0xffffff80ffffffff | 4G     | per cpu data (with a limit of 16MB, 8G supports up to 512 cores) |
+|                    |                    | 506GB  | unused gap                                                       |
 | 0xffffffff80000000 | 0xffffffff9fffffff | 512MB  | kernel text/data                                                 |
-|                    |                    | 1.5GB  | unused gap                                                       |
+| 0xffffffffa0000000 | 0xffffffffbfffffff | 512MB  | unused gap                                                       |
+| 0xffffffffc0000000 | 0xffffffffffffffff | 1G     | kernel devices                                                   |
 
 ## Allocations and kernel heap
 
-Memory management is pretty challenging. I opted to let a userspace server
-handle any memory allocations and management. Of course the kernel is
-responsible for setting itself up. This requires a small amount of memory
-management, mainly just setting up the kernel address space and switching
-to it.
+The kernel itself performs as little memory management as possible. The only
+allocations happening at runtime (in kernel space) is the process of setting up
+per-cpu variables and stack space. k_os, like seL4, is a single-kernel-stack-
+per-core kernel.
 
-For now, the kernel does perform some memory allocation, namely to setup
-the per-cpu data. Ideally, all this work should be done by a bootloader or
-similar, after which the kernel is started, but I opted to just use Grub
-for now.
+Most of he memory management can be tuned at compile-time to match the target
+system as close as possible. By doing this, k's footprint can be lowered to the
+bare minimum required to run the system.
