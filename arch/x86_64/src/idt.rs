@@ -53,7 +53,7 @@ pub fn set_ist(vector: u8, ist: u8) {
 pub fn init() {
     static INIT: Once<()> = Once::new();
     INIT.call_once(|| {
-        unsafe fn set_gate(vector: u8, isr: unsafe extern "C" fn()) {
+        unsafe fn set_gate(vector: u8, isr: handler::InterruptHandlerFn) {
             EARLY_IDT[vector as usize] = GateDescriptor::new(
                 isr as u64,
                 cs(),
@@ -64,28 +64,28 @@ pub fn init() {
         }
 
         unsafe {
-            set_gate(0, traps::divide_by_zero);
-            set_gate(1, traps::debug);
-            set_gate(2, traps::nmi);
-            set_gate(3, traps::breakpoint);
-            set_gate(4, traps::overflow);
-            set_gate(5, traps::bound_range);
-            set_gate(6, traps::invalid_opcode);
-            set_gate(7, traps::device_not_available);
-            set_gate(8, traps::double_fault);
-            set_gate(10, traps::invalid_tss);
-            set_gate(11, traps::segment_not_present);
-            set_gate(12, traps::stack);
-            set_gate(13, traps::general_protection);
-            set_gate(14, traps::page_fault);
-            set_gate(16, traps::x87_floating_point_ex);
-            set_gate(17, traps::alignment_check);
-            set_gate(18, traps::machine_check);
-            set_gate(19, traps::simd_floating_point);
-            set_gate(21, traps::control_protection);
-            set_gate(28, traps::hypervisor_injection);
-            set_gate(29, traps::vmm_communication);
-            set_gate(30, traps::security);
+            set_gate(0, traps::divide_by_zero.as_ptr());
+            set_gate(1, traps::debug.as_ptr());
+            set_gate(2, traps::nmi.as_ptr());
+            set_gate(3, traps::breakpoint.as_ptr());
+            set_gate(4, traps::overflow.as_ptr());
+            set_gate(5, traps::bound_range.as_ptr());
+            set_gate(6, traps::invalid_opcode.as_ptr());
+            set_gate(7, traps::device_not_available.as_ptr());
+            set_gate(8, traps::double_fault.as_ptr());
+            set_gate(10, traps::invalid_tss.as_ptr());
+            set_gate(11, traps::segment_not_present.as_ptr());
+            set_gate(12, traps::stack.as_ptr());
+            set_gate(13, traps::general_protection.as_ptr());
+            set_gate(14, traps::page_fault.as_ptr());
+            set_gate(16, traps::x87_floating_point_ex.as_ptr());
+            set_gate(17, traps::alignment_check.as_ptr());
+            set_gate(18, traps::machine_check.as_ptr());
+            set_gate(19, traps::simd_floating_point.as_ptr());
+            set_gate(21, traps::control_protection.as_ptr());
+            set_gate(28, traps::hypervisor_injection.as_ptr());
+            set_gate(29, traps::vmm_communication.as_ptr());
+            set_gate(30, traps::security.as_ptr());
         }
 
         load();
