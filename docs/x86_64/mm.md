@@ -30,7 +30,7 @@ The kernel uses 4-level paging, which allows up to 64TB of physical memory. The
 layout of the kernel address space is as follows:
 
 | start                | end                  | size   | description                                                      |
-|----------------------|-------------------  -|--------|------------------------------------------------------------------|
+|----------------------|----------------------|--------|------------------------------------------------------------------|
 | `0x0000000000000000` | `0x00007fffffffffff` | 128TB  | userspace (47 bits)                                              |
 | `0xffff800000000000` | `0xffffbfffffffffff` | 64TB   | direct mapping of all physical memory                            |
 |                      |                      | 63.5TB | unused gap                                                       |
