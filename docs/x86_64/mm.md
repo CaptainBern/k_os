@@ -29,16 +29,16 @@ most of the kernel address space is unused.
 The kernel uses 4-level paging, which allows up to 64TB of physical memory. The
 layout of the kernel address space is as follows:
 
-| start              | end                | size   | description                                                      |
-|--------------------|--------------------|--------|------------------------------------------------------------------|
-| 0x0000000000000000 | 0x00007fffffffffff | 128TB  | userspace (47 bits)                                              |
-| 0xffff800000000000 | 0xffffbfffffffffff | 64TB   | direct mapping of all physical memory                            |
-|                    |                    | 63.5TB | unused gap                                                       |
-| 0xffffff8000000000 | 0xffffff80ffffffff | 4G     | per cpu data (with a limit of 16MB, 8G supports up to 512 cores) |
-|                    |                    | 506GB  | unused gap                                                       |
-| 0xffffffff80000000 | 0xffffffff9fffffff | 512MB  | kernel text/data                                                 |
-| 0xffffffffa0000000 | 0xffffffffbfffffff | 512MB  | unused gap                                                       |
-| 0xffffffffc0000000 | 0xffffffffffffffff | 1G     | kernel devices                                                   |
+| start                | end                  | size   | description                                                      |
+|----------------------|-------------------  -|--------|------------------------------------------------------------------|
+| `0x0000000000000000` | `0x00007fffffffffff` | 128TB  | userspace (47 bits)                                              |
+| `0xffff800000000000` | `0xffffbfffffffffff` | 64TB   | direct mapping of all physical memory                            |
+|                      |                      | 63.5TB | unused gap                                                       |
+| `0xffffff8000000000` | `0xffffff80ffffffff` | 4G     | per cpu data (with a limit of 16MB, 8G supports up to 512 cores) |
+|                      |                      | 506GB  | unused gap                                                       |
+| `0xffffffff80000000` | `0xffffffff9fffffff` | 512MB  | kernel text/data                                                 |
+| `0xffffffffa0000000` | `0xffffffffbfffffff` | 512MB  | unused gap                                                       |
+| `0xffffffffc0000000` | `0xffffffffffffffff` | 1G     | kernel devices                                                   |
 
 ## Allocations and kernel heap
 
